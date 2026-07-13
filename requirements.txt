@@ -1,0 +1,6 @@
+streamlit>=1.40
+plotly>=5.22
+numpy>=1.23
+
+# Optional, only needed for the in-app STL export button:
+# cadquery>=2.4

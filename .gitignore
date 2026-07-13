@@ -1,0 +1,21 @@
+# Local Python and solver environments
+work/
+.venv/
+
+# Python-generated files
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Generated exports
+cyclewash_fea_animation.html
+cyclewash_rear_cog_and_shaft.stl
+
+# Streamlit secrets stay local
+.streamlit/secrets.toml
+
+# Editor and operating-system files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
