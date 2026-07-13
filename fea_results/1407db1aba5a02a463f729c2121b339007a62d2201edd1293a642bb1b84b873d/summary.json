@@ -1,0 +1,162 @@
+{
+  "analytical_values": {
+    "angular_speed_rad_s": 6.283185307179585,
+    "centrifugal_pressure_pa": 297.9041392424811,
+    "chain_force_n": 693.9895774355903,
+    "design_torque_n_m": 47.74648292756861,
+    "design_water_pressure_pa": 2796.6385592424813,
+    "full_drum_volume_m3": 0.08866831105491832,
+    "hydrostatic_pressure_pa": 2498.7344200000002,
+    "maximum_water_depth_m": 0.196,
+    "nominal_torque_n_m": 23.873241463784304,
+    "retained_water_mass_kg": 17.068649878071778,
+    "retained_water_volume_m3": 0.017068649878071777,
+    "retained_water_weight_n": 167.3862753267926,
+    "shaft_bending_moment_n_m": 60.29630969336681,
+    "shaft_bending_stress_pa": 39307082.702434674,
+    "shaft_chain_bending_moment_n_m": 48.579270420491326,
+    "shaft_factor_of_safety": 5.245274271462478,
+    "shaft_reaction_bending_moment_n_m": 11.717039272875484,
+    "shaft_torsional_shear_pa": 15562933.807463082,
+    "shaft_transverse_reaction_n": 167.3862753267926,
+    "shaft_von_mises_pa": 47661949.98804047
+  },
+  "assumptions": {
+    "analysis": "Linear-static FEA with reduced-order water loading; not CFD.",
+    "convergence_policy": "Medium/fine worst-phase unconstrained P95 stress and maximum displacement must each change by less than 10%; otherwise sensitivity is unresolved",
+    "drum_gravity_load": "Retained-water weight is distributed over the gravity-wetted internal back region",
+    "drum_solid_tet_limitation": "Two forced radial layers improve thickness sampling but do not imply shell convergence",
+    "drum_wall_model": "Equivalent hollow solid with two forced radial layers and no explicit perforations",
+    "enclosure_scope": "Enclosure dimensions are reported inputs and are not solved",
+    "gear_model": "Toothless disc and hub with a cylindrical shaft bore constraint",
+    "load_model_limitations": "Reduced-order side pressure and retained-water back traction; not CFD or fluid-structure interaction",
+    "mesh_level": "coarse",
+    "request_identity": {
+      "input_sha256": "ee6123ff05b1ddafd7731e7e7fa48901ab9e9a00709fe3d513ca65359fae83a5",
+      "mesh_levels": [
+        "coarse"
+      ],
+      "request_sha256": "1407db1aba5a02a463f729c2121b339007a62d2201edd1293a642bb1b84b873d"
+    },
+    "safety_factor_policy": "Yield strength divided by nodal von Mises stress; zero-stress values capped at 1e+12",
+    "shaft_load_station_m": 0.07,
+    "shaft_reaction_load_n": 167.3862753267926,
+    "shaft_reaction_station_m": 0.07,
+    "symmetric_tensor_order": "xx,yy,zz,xy,xz,yz",
+    "units": "SI: m, N, Pa, degrees"
+  },
+  "components": {
+    "drum": {
+      "element_count": 5879,
+      "file": "drum_phase_results.npz",
+      "maximum_displacement_m": 4.331075776242549e-06,
+      "maximum_shear_pa": 261903.6353601719,
+      "maximum_von_mises_pa": 472976.8751875247,
+      "minimum_factor_of_safety": 454.567678207856,
+      "node_count": 1611,
+      "phase_count": 12,
+      "phase_degrees": [
+        0.0,
+        30.0,
+        60.0,
+        90.0,
+        120.0,
+        150.0,
+        180.0,
+        210.0,
+        240.0,
+        270.0,
+        300.0,
+        330.0
+      ],
+      "stress_95th_percentile_pa": 207543.22468836824
+    },
+    "gear": {
+      "element_count": 1132,
+      "file": "gear_results.npz",
+      "maximum_displacement_m": 3.093888293180353e-06,
+      "maximum_shear_pa": 3498482.386659558,
+      "maximum_von_mises_pa": 6060204.536736475,
+      "minimum_factor_of_safety": 41.25273305290605,
+      "node_count": 415,
+      "phase_count": 1,
+      "phase_degrees": [
+        0.0
+      ],
+      "stress_95th_percentile_pa": 4891080.954496503
+    },
+    "shaft": {
+      "element_count": 619,
+      "file": "shaft_results.npz",
+      "maximum_displacement_m": 4.7638198326933964e-05,
+      "maximum_shear_pa": 17929382.78768991,
+      "maximum_von_mises_pa": 33872271.882142924,
+      "minimum_factor_of_safety": 7.380668201703859,
+      "node_count": 226,
+      "phase_count": 1,
+      "phase_degrees": [
+        0.0
+      ],
+      "stress_95th_percentile_pa": 24796978.163549077
+    }
+  },
+  "convergence": {
+    "drum": {
+      "status": "not_evaluated"
+    },
+    "gear": {
+      "status": "not_evaluated"
+    },
+    "shaft": {
+      "status": "not_evaluated"
+    }
+  },
+  "inputs": {
+    "chain_force_overhang_m": 0.07,
+    "drum_depth_m": 0.36,
+    "drum_material": {
+      "density_kg_m3": 8000.0,
+      "name": "Stainless steel",
+      "poisson_ratio": 0.29,
+      "yield_strength_pa": 215000000.0,
+      "youngs_modulus_pa": 193000000000.0
+    },
+    "drum_radius_m": 0.28,
+    "drum_stiffness_factor": 0.75,
+    "drum_wall_thickness_m": 0.003,
+    "enclosure_body_height_m": 0.68,
+    "enclosure_width_m": 0.684,
+    "fill_fraction": 0.35,
+    "gear_hub_radius_m": 0.02,
+    "gear_hub_thickness_m": 0.0375,
+    "gear_pitch_radius_m": 0.0688,
+    "gear_sprocket_thickness_m": 0.003,
+    "gravity_m_s2": 9.80665,
+    "human_power_w": 150.0,
+    "overall_height_m": 0.737,
+    "perforation_open_area_ratio": 0.18,
+    "perforation_relief": 0.45,
+    "shaft_diameter_m": 0.025,
+    "shaft_length_m": 0.11,
+    "shaft_material": {
+      "density_kg_m3": 7850.0,
+      "name": "Galvanized steel",
+      "poisson_ratio": 0.3,
+      "yield_strength_pa": 250000000.0,
+      "youngs_modulus_pa": 200000000000.0
+    },
+    "shaft_reaction_overhang_m": 0.07,
+    "shaft_transverse_reaction_n": 167.3862753267926,
+    "slosh_amplification": 1.3,
+    "speed_rpm": 60.0,
+    "transient_factor": 2.0,
+    "water_density_kg_m3": 1000.0
+  },
+  "schema_version": "cyclewash-fea-v1",
+  "solver_versions": {
+    "gmsh": "4.15.2",
+    "meshio": "5.3.5",
+    "numpy": "2.5.1",
+    "sfepy": "2026.2"
+  }
+}

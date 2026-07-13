@@ -1,0 +1,33 @@
+"""Shared approved physical dimensions for CycleWash calculators and FEA."""
+
+from __future__ import annotations
+
+import math
+
+
+ASSEMBLY_SCALE_TO_M = 0.340
+DRUM_EFFECTIVE_RADIUS_M = 0.270
+DRUM_DEPTH_M = 0.562
+SHAFT_DIAMETER_M = 0.025
+SHAFT_LENGTH_M = 0.110
+GEAR_TOOTH_COUNT = 32
+CHAIN_PITCH_M = 0.0127
+GEAR_PITCH_RADIUS_M = CHAIN_PITCH_M / (
+    2.0 * math.sin(math.pi / GEAR_TOOTH_COUNT)
+)
+GEAR_OUTSIDE_RADIUS_M = GEAR_PITCH_RADIUS_M + CHAIN_PITCH_M * 0.12
+GEAR_THICKNESS_M = 0.003
+
+
+__all__ = [
+    "ASSEMBLY_SCALE_TO_M",
+    "CHAIN_PITCH_M",
+    "DRUM_DEPTH_M",
+    "DRUM_EFFECTIVE_RADIUS_M",
+    "GEAR_OUTSIDE_RADIUS_M",
+    "GEAR_PITCH_RADIUS_M",
+    "GEAR_THICKNESS_M",
+    "GEAR_TOOTH_COUNT",
+    "SHAFT_DIAMETER_M",
+    "SHAFT_LENGTH_M",
+]

@@ -1,0 +1,788 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CycleWash Engineering Animation</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      background: #111315;
+      color: #eef1f4;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; overflow-x: hidden; }
+    body { min-height: 100vh; background: #111315; }
+    button, select, input { font: inherit; }
+    button, select {
+      min-height: 2.25rem;
+      border: 1px solid #50575f;
+      border-radius: 6px;
+      background: #24282c;
+      color: #f5f7f8;
+    }
+    button { padding: 0.35rem 0.7rem; cursor: pointer; }
+    select { padding: 0.3rem 1.8rem 0.3rem 0.55rem; }
+    button:hover, select:hover { border-color: #8e9aa6; background: #2e3338; }
+    button:focus-visible, select:focus-visible, input:focus-visible, canvas:focus-visible {
+      outline: 3px solid #56b4e9;
+      outline-offset: 2px;
+    }
+    .app {
+      min-height: 100vh;
+      min-height: 100dvh;
+      display: grid;
+      grid-template-rows: minmax(28rem, 1fr) auto;
+      background: #111315;
+    }
+    .viewport {
+      position: relative;
+      min-width: 0;
+      min-height: 0;
+      overflow: hidden;
+      background: #171a1d;
+      border-bottom: 1px solid #373d43;
+    }
+    canvas { width: 100%; height: 100%; display: block; touch-action: none; }
+    .fallback {
+      position: absolute;
+      inset: 0;
+      display: none;
+      place-items: center;
+      padding: 2rem;
+      background: #171a1d;
+      color: #f3c96b;
+      text-align: center;
+      font-weight: 650;
+    }
+    .fallback.visible { display: grid; }
+    .panel {
+      min-width: 0;
+      padding: 0.65rem clamp(0.75rem, 2vw, 1.25rem) 0.75rem;
+      background: #1b1e21;
+    }
+    .controls {
+      display: grid;
+      grid-template-columns: auto minmax(10rem, 1fr) auto auto auto auto;
+      gap: 0.55rem;
+      align-items: center;
+    }
+    .controls label { color: #cbd1d6; font-size: 0.82rem; }
+    #phase-slider { width: 100%; min-width: 8rem; accent-color: #56b4e9; }
+    .values {
+      display: grid;
+      grid-template-columns: repeat(9, minmax(0, 1fr));
+      gap: 0.35rem 0.7rem;
+      margin: 0.7rem 0 0;
+    }
+    .value { min-width: 0; }
+    .value dt {
+      color: #929ba3;
+      font-size: 0.7rem;
+      line-height: 1.1;
+      white-space: nowrap;
+    }
+    .value dd {
+      margin: 0.16rem 0 0;
+      color: #f2f4f5;
+      font-size: 0.87rem;
+      font-variant-numeric: tabular-nums;
+      overflow-wrap: anywhere;
+    }
+    .notices { margin-top: 0.6rem; font-size: 0.76rem; line-height: 1.35; color: #aeb6bd; }
+    .notices p { margin: 0.2rem 0 0; }
+    .warning { color: #f3c96b; }
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+    @media (max-width: 900px) {
+      .app { grid-template-rows: minmax(22rem, 62dvh) auto; }
+      .controls { grid-template-columns: auto minmax(8rem, 1fr) auto; }
+      .controls .speed-label { grid-column: 1; }
+      #speed-select { grid-column: 2; justify-self: start; }
+      #reset-camera { grid-column: 3; }
+      .values { grid-template-columns: repeat(3, minmax(5.5rem, 1fr)); }
+    }
+    @media (max-width: 520px) {
+      .app { grid-template-rows: minmax(19rem, 55dvh) auto; }
+      .panel { padding-inline: 0.65rem; }
+      .controls { grid-template-columns: minmax(0, 1fr) auto; }
+      .controls .phase-label { grid-column: 1 / -1; }
+      #phase-slider { grid-column: 1; }
+      #play-pause { grid-column: 2; }
+      .controls .speed-label { grid-column: 1; }
+      #speed-select { grid-column: 2; justify-self: stretch; }
+      #reset-camera { grid-column: 1 / -1; width: 100%; }
+      .values { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.45rem; }
+      .value dt { white-space: normal; }
+      .value dd { font-size: 0.79rem; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      * { scroll-behavior: auto !important; }
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <section class="viewport" aria-label="CycleWash visualization viewport">
+      <canvas id="scene-canvas" aria-label="CycleWash 3D animation" aria-describedby="scene-description" tabindex="0"></canvas>
+      <p id="scene-description" class="sr-only">Interactive three-dimensional CycleWash assembly with rotating drum components, gravity-level water, and phase-dependent engineering fields.</p>
+      <div id="webgl-fallback" class="fallback" role="alert">WebGL is unavailable. The animation cannot be rendered on this device.</div>
+    </section>
+    <section class="panel" aria-label="Animation controls and engineering values">
+      <div class="controls">
+        <label class="phase-label" for="phase-slider">Phase <output id="phase-output" for="phase-slider">0.0 degrees</output></label>
+        <input id="phase-slider" type="range" min="0" max="360" step="0.1" value="0" aria-label="Animation phase in degrees">
+        <button id="play-pause" type="button" aria-pressed="true">Pause</button>
+        <label class="speed-label" for="speed-select">Speed</label>
+        <select id="speed-select" aria-label="Playback speed">
+          <option value="0.25">0.25x</option>
+          <option value="0.5">0.5x</option>
+          <option value="1">1x</option>
+          <option value="2">2x</option>
+        </select>
+        <button id="reset-camera" type="button" title="Reset camera">Reset camera</button>
+      </div>
+      <dl class="values">
+        <div class="value"><dt>Time</dt><dd id="value-time">0.000 s</dd></div>
+        <div class="value"><dt>Phase</dt><dd id="value-phase">0.0 degrees</dd></div>
+        <div class="value"><dt>RPM</dt><dd id="value-rpm">0.0</dd></div>
+        <div class="value"><dt>Omega</dt><dd id="value-omega">0.000 rad/s</dd></div>
+        <div class="value"><dt>Retained mass</dt><dd id="value-mass">0.000 kg</dd></div>
+        <div class="value"><dt>Pressure</dt><dd id="value-pressure">0.000 kPa</dd></div>
+        <div class="value"><dt>Max VM</dt><dd id="value-stress">N/A</dd></div>
+        <div class="value"><dt>Displacement</dt><dd id="value-displacement">N/A</dd></div>
+        <div class="value"><dt>FoS</dt><dd id="value-fos">N/A</dd></div>
+      </dl>
+      <div class="notices">
+        <p id="analysis-mode"></p>
+        <p id="scope-disclaimer"></p>
+        <p id="transient-qualifier" hidden></p>
+        <p id="registration-warning" class="warning" hidden></p>
+      </div>
+      <p id="status-message" class="sr-only" role="status" aria-live="polite"></p>
+    </section>
+  </main>
+  <script>
+@@THREE_BUNDLE@@
+window.CycleWashThree = CycleWashThree;
+  </script>
+  <script>
+window.CYCLEWASH_ANIMATION = @@PAYLOAD_JSON@@;
+  </script>
+  <script>
+/* CYCLEWASH_RUNTIME_HELPERS_START */
+window.CycleWashRuntimeHelpers = (() => {
+  "use strict";
+
+  const COLOR_SCALES = new Set(["Turbo", "Viridis", "Jet", "Rainbow"]);
+  const VIRIDIS_STOPS = [
+    0.267004, 0.004874, 0.329415,
+    0.229739, 0.322361, 0.545706,
+    0.127568, 0.566949, 0.550556,
+    0.369214, 0.788888, 0.382914,
+    0.993248, 0.906157, 0.143936
+  ];
+
+  function clamp01(value) {
+    return Math.max(0, Math.min(1, Number(value)));
+  }
+
+  function colorscaleName(name) {
+    return COLOR_SCALES.has(name) ? name : "Turbo";
+  }
+
+  function writeColorscale(name, value, target, offset = 0) {
+    const scale = colorscaleName(name);
+    const t = clamp01(value);
+    let red;
+    let green;
+    let blue;
+    if (scale === "Viridis") {
+      const position = t * 4;
+      const stop = Math.min(3, Math.floor(position));
+      const alpha = position - stop;
+      const first = stop * 3;
+      const second = first + 3;
+      red = VIRIDIS_STOPS[first] + (VIRIDIS_STOPS[second] - VIRIDIS_STOPS[first]) * alpha;
+      green = VIRIDIS_STOPS[first + 1] + (VIRIDIS_STOPS[second + 1] - VIRIDIS_STOPS[first + 1]) * alpha;
+      blue = VIRIDIS_STOPS[first + 2] + (VIRIDIS_STOPS[second + 2] - VIRIDIS_STOPS[first + 2]) * alpha;
+    } else if (scale === "Jet") {
+      red = clamp01(1.5 - Math.abs(4 * t - 3));
+      green = clamp01(1.5 - Math.abs(4 * t - 2));
+      blue = clamp01(1.5 - Math.abs(4 * t - 1));
+    } else if (scale === "Rainbow") {
+      const hue = (1 - t) * 4.5;
+      const sector = Math.floor(hue);
+      const fraction = hue - sector;
+      if (sector === 0) {
+        red = 1; green = fraction; blue = 0;
+      } else if (sector === 1) {
+        red = 1 - fraction; green = 1; blue = 0;
+      } else if (sector === 2) {
+        red = 0; green = 1; blue = fraction;
+      } else if (sector === 3) {
+        red = 0; green = 1 - fraction; blue = 1;
+      } else {
+        red = fraction; green = 0; blue = 1;
+      }
+    } else {
+      const t2 = t * t;
+      const t3 = t2 * t;
+      const t4 = t3 * t;
+      const t5 = t4 * t;
+      red = 0.13572138 + 4.61539260 * t - 42.66032258 * t2 + 132.13108234 * t3 - 152.94239396 * t4 + 59.28637943 * t5;
+      green = 0.09140261 + 2.19418839 * t + 4.84296658 * t2 - 14.18503333 * t3 + 4.27729857 * t4 + 2.82956604 * t5;
+      blue = 0.10667330 + 12.64194608 * t - 60.58204836 * t2 + 110.36276771 * t3 - 89.90310912 * t4 + 27.34824973 * t5;
+    }
+    target[offset] = clamp01(red);
+    target[offset + 1] = clamp01(green);
+    target[offset + 2] = clamp01(blue);
+    return target;
+  }
+
+  function colorscaleSample(name, value) {
+    return writeColorscale(name, value, [0, 0, 0], 0);
+  }
+
+  function normalizedAxis(axis) {
+    const source = axis && axis.length === 3 ? axis : [1, 0, 0];
+    const x = Number(source[0]);
+    const y = Number(source[1]);
+    const z = Number(source[2]);
+    const magnitude = Math.hypot(x, y, z);
+    if (![x, y, z, magnitude].every(Number.isFinite) || magnitude <= Number.EPSILON) {
+      return [1, 0, 0];
+    }
+    return [x / magnitude, y / magnitude, z / magnitude];
+  }
+
+  function axisAngleState(axis, angleDegrees) {
+    return {
+      axis: normalizedAxis(axis),
+      angleRadians: Number(angleDegrees) * Math.PI / 180
+    };
+  }
+
+  function normalizedName(part) {
+    return String(part && part.name || "").toLowerCase().replaceAll("_", " ");
+  }
+
+  function phaseInterpolation(phaseDegrees, phaseCount = 12) {
+    const wrappedPhase = ((Number(phaseDegrees) % 360) + 360) % 360;
+    const phasePosition = wrappedPhase / (360 / phaseCount);
+    const phaseIndex = Math.floor(phasePosition) % phaseCount;
+    return {
+      phaseIndex,
+      nextPhaseIndex: (phaseIndex + 1) % phaseCount,
+      phaseAlpha: phasePosition - Math.floor(phasePosition)
+    };
+  }
+
+  function interpolatePair(sequence, phaseIndex, nextPhaseIndex, phaseAlpha) {
+    if (!sequence || !sequence.length) return NaN;
+    const a = Number(sequence[phaseIndex % sequence.length]);
+    const b = Number(sequence[nextPhaseIndex % sequence.length]);
+    return a + (b - a) * phaseAlpha;
+  }
+
+  function disclaimerLines(metadata) {
+    const mode = String(metadata && metadata.analysis_mode || "unknown");
+    return {
+      mode,
+      modeLabel: mode === "fea" ? "Analysis mode: Stage 1 FEA" : "Analysis mode: Normalized geometric preview",
+      primary: String(metadata && metadata.scope_disclaimer || "Analysis scope is unavailable."),
+      qualifier: String(metadata && metadata.transient_qualification || "")
+    };
+  }
+
+  function isHeatmapEligible(part) {
+    if (normalizedName(part).includes("enclosure")) return false;
+    const stress = part && part.fields && part.fields.stress;
+    return Boolean(stress && Array.isArray(stress.phases) && stress.phases.length);
+  }
+
+  function waterTransformBounds(vertices, registration) {
+    if (!vertices || vertices.length === 0 || vertices.length % 3 !== 0) {
+      throw new Error("water vertices must be a non-empty XYZ array");
+    }
+    const minimum = [Infinity, Infinity, Infinity];
+    const maximum = [-Infinity, -Infinity, -Infinity];
+    for (let index = 0; index < vertices.length; index += 3) {
+      for (let axis = 0; axis < 3; axis += 1) {
+        const value = Number(vertices[index + axis]);
+        minimum[axis] = Math.min(minimum[axis], value);
+        maximum[axis] = Math.max(maximum[axis], value);
+      }
+    }
+    const center = minimum.map((value, axis) => (value + maximum[axis]) / 2);
+    const scale = registration ? [
+      1 / Number(registration.longitudinal_scale_factor),
+      1 / Number(registration.radial_scale_factors.y),
+      1 / Number(registration.radial_scale_factors.z)
+    ] : [1, 1, 1];
+    if (scale.some((value) => !Number.isFinite(value) || value <= 0)) {
+      throw new Error("water registration scales must be finite and positive");
+    }
+    const transformedMin = minimum.map(
+      (value, axis) => center[axis] + (value - center[axis]) * scale[axis]
+    );
+    const transformedMax = maximum.map(
+      (value, axis) => center[axis] + (value - center[axis]) * scale[axis]
+    );
+    return {center, scale, transformedMin, transformedMax};
+  }
+
+  function conciseNumber(value) {
+    return Number.parseFloat(Number(value).toPrecision(6)).toString();
+  }
+
+  function registrationWarnings(parts) {
+    const messages = [];
+    for (const part of parts || []) {
+      const mapping = part && part.metadata && part.metadata.fea_mapping;
+      if (!mapping) continue;
+      const registration = mapping.registration;
+      if (registration && registration.warning) {
+        messages.push(`${part.name}: ${registration.warning_message || "visualization registration is distorted."}`);
+      }
+      if (mapping.mapping_warning) {
+        const p95 = mapping.error_m && mapping.error_m.p95;
+        const tolerance = mapping.warning_tolerance_m;
+        messages.push(
+          `${part.name}: post-registration projection P95 ${conciseNumber(p95)} m exceeds tolerance ${conciseNumber(tolerance)} m.`
+        );
+      }
+      if (mapping.warning && !(registration && registration.warning) && !mapping.mapping_warning) {
+        messages.push(`${part.name}: FEA visualization mapping warning.`);
+      }
+    }
+    return [...new Set(messages)];
+  }
+
+  return {
+    axisAngleState,
+    colorscaleName,
+    colorscaleSample,
+    disclaimerLines,
+    interpolatePair,
+    isHeatmapEligible,
+    phaseInterpolation,
+    registrationWarnings,
+    normalizedAxis,
+    writeColorscale,
+    waterTransformBounds
+  };
+})();
+/* CYCLEWASH_RUNTIME_HELPERS_END */
+  </script>
+  <script>
+(() => {
+  "use strict";
+
+  const payload = window.CYCLEWASH_ANIMATION;
+  const helpers = window.CycleWashRuntimeHelpers;
+  const runtime = window.CycleWashThree;
+  const canvas = document.getElementById("scene-canvas");
+  const fallback = document.getElementById("webgl-fallback");
+  const viewport = canvas.parentElement;
+  const phaseSlider = document.getElementById("phase-slider");
+  const phaseOutput = document.getElementById("phase-output");
+  const playPause = document.getElementById("play-pause");
+  const speedSelect = document.getElementById("speed-select");
+  const registrationWarning = document.getElementById("registration-warning");
+  const statusMessage = document.getElementById("status-message");
+  const analysisMode = document.getElementById("analysis-mode");
+  const scopeDisclaimer = document.getElementById("scope-disclaimer");
+  const transientQualifier = document.getElementById("transient-qualifier");
+  const values = {
+    time: document.getElementById("value-time"),
+    phase: document.getElementById("value-phase"),
+    rpm: document.getElementById("value-rpm"),
+    omega: document.getElementById("value-omega"),
+    mass: document.getElementById("value-mass"),
+    pressure: document.getElementById("value-pressure"),
+    stress: document.getElementById("value-stress"),
+    displacement: document.getElementById("value-displacement"),
+    fos: document.getElementById("value-fos")
+  };
+
+  function announceStatus(message) {
+    statusMessage.textContent = message;
+  }
+
+  const disclaimer = helpers.disclaimerLines(payload.metadata);
+  analysisMode.textContent = disclaimer.modeLabel;
+  scopeDisclaimer.textContent = disclaimer.primary;
+  transientQualifier.textContent = disclaimer.qualifier;
+  transientQualifier.hidden = !disclaimer.qualifier;
+
+  if (!runtime || runtime.THREE_VERSION !== "0.185.1") {
+    const message = "The embedded Three.js runtime is missing or has an unexpected version.";
+    fallback.textContent = message;
+    fallback.classList.add("visible");
+    announceStatus(`Animation error: ${message}`);
+    return;
+  }
+  const THREE = runtime.THREE;
+  const OrbitControls = runtime.OrbitControls;
+
+  let renderer;
+  try {
+    renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: "high-performance" });
+  } catch (error) {
+    console.error(error);
+    fallback.classList.add("visible");
+    announceStatus(`Animation error: ${error.message || error}`);
+    return;
+  }
+
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.setClearColor(0x171a1d, 1);
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(38, 1, 0.01, 100000);
+  const controls = new OrbitControls(camera, canvas);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.08;
+  controls.screenSpacePanning = true;
+  scene.add(new THREE.HemisphereLight(0xf4f7fa, 0x303840, 1.6));
+  const keyLight = new THREE.DirectionalLight(0xffffff, 2.2);
+  keyLight.position.set(2, -3, 4);
+  scene.add(keyLight);
+  const rimLight = new THREE.DirectionalLight(0x8ecae6, 1.0);
+  rimLight.position.set(-3, 2, 1);
+  scene.add(rimLight);
+
+  function decodeTypedArray(record) {
+    const binary = atob(record.base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+    const view = new DataView(bytes.buffer);
+    if (record.dtype === "float32") {
+      const decoded = new Float32Array(binary.length / 4);
+      for (let index = 0; index < decoded.length; index += 1) decoded[index] = view.getFloat32(index * 4, true);
+      return decoded;
+    }
+    if (record.dtype === "uint32") {
+      const decoded = new Uint32Array(binary.length / 4);
+      for (let index = 0; index < decoded.length; index += 1) decoded[index] = view.getUint32(index * 4, true);
+      return decoded;
+    }
+    if (record.dtype === "uint8") return new Uint8Array(bytes.buffer);
+    throw new Error(`Unsupported typed array dtype: ${record.dtype}`);
+  }
+
+  function createGeometry(records) {
+    const positions = decodeTypedArray(records.vertices);
+    const indices = decodeTypedArray(records.triangles);
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+    geometry.computeVertexNormals();
+    geometry.computeBoundingBox();
+    return geometry;
+  }
+
+  const rotationOrigin = payload.rotation.origin;
+  const rotationAxisValues = helpers.normalizedAxis(payload.rotation && payload.rotation.axis);
+  const rotationAxis = new THREE.Vector3(
+    rotationAxisValues[0], rotationAxisValues[1], rotationAxisValues[2]
+  );
+  const displayOptions = payload.metadata && payload.metadata.display_options || {};
+  const selectedColorscale = helpers.colorscaleName(displayOptions.colorscale);
+  const rotatingGroup = new THREE.Group();
+  rotatingGroup.position.set(rotationOrigin[0], rotationOrigin[1], rotationOrigin[2]);
+  const staticGroup = new THREE.Group();
+  scene.add(rotatingGroup, staticGroup);
+  const renderParts = [];
+  let assemblyBounds = new THREE.Box3();
+
+  for (const part of payload.parts) {
+    const geometry = createGeometry(part.geometry);
+    const stress = part.fields && part.fields.stress;
+    const hasScalarFields = helpers.isHeatmapEligible(part);
+    const materialMode = hasScalarFields ? "field" : "material mode";
+    const colorArray = hasScalarFields ? new Float32Array(geometry.attributes.position.count * 3) : null;
+    if (colorArray) geometry.setAttribute("color", new THREE.BufferAttribute(colorArray, 3));
+    const enclosure = part.name.toLowerCase().includes("enclosure");
+    const baseColor = enclosure ? "#9ca3af" : part.color;
+    const material = new THREE.MeshStandardMaterial({
+      color: baseColor,
+      roughness: enclosure ? 0.82 : 0.55,
+      metalness: enclosure ? 0.18 : 0.28,
+      transparent: part.opacity < 1,
+      opacity: enclosure ? 0.5 : part.opacity,
+      depthWrite: part.opacity >= 1,
+      side: THREE.DoubleSide,
+      vertexColors: hasScalarFields
+    });
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.name = part.name;
+    mesh.visible = part.visible !== false;
+    if (part.rotating) mesh.position.set(-rotationOrigin[0], -rotationOrigin[1], -rotationOrigin[2]);
+    const parent = part.rotating ? rotatingGroup : staticGroup;
+    parent.add(mesh);
+    assemblyBounds.union(geometry.boundingBox);
+
+    const scalarPhases = hasScalarFields ? stress.phases.map(decodeTypedArray) : null;
+    const displacement = part.fields && part.fields.displacement;
+    const normalizedName = part.name.toLowerCase().replaceAll("_", " ");
+    const materialInputs = normalizedName.includes("drum") ? payload.metadata.inputs.drum_material : payload.metadata.inputs.shaft_material;
+    renderParts.push({
+      part,
+      mesh,
+      materialMode,
+      baseColor,
+      scalarPhases,
+      colorArray,
+      phaseMaximumPa: stress && stress.physical_stress ? stress.phase_maximum_pa : null,
+      phaseMaximumM: displacement ? displacement.phase_maximum_m : null,
+      yieldStrengthPa: materialInputs ? Number(materialInputs.yield_strength_pa) : NaN
+    });
+  }
+
+  function innerDrumRegistration() {
+    const drum = payload.parts.find((part) => part.name.toLowerCase().replaceAll("_", " ").includes("inner drum"));
+    const mapping = drum && drum.metadata && drum.metadata.fea_mapping;
+    return mapping && mapping.registration;
+  }
+
+  const waterGeometry = createGeometry({ vertices: payload.water.vertices, triangles: payload.water.triangles });
+  const waterTransform = helpers.waterTransformBounds(
+    waterGeometry.attributes.position.array,
+    innerDrumRegistration()
+  );
+  waterGeometry.translate(
+    -waterTransform.center[0],
+    -waterTransform.center[1],
+    -waterTransform.center[2]
+  );
+  const waterMaterial = new THREE.MeshPhysicalMaterial({
+    color: 0x2a9fd6,
+    transparent: true,
+    opacity: 0.42,
+    roughness: 0.18,
+    metalness: 0,
+    transmission: 0.08,
+    depthWrite: false,
+    side: THREE.DoubleSide
+  });
+  const waterMesh = new THREE.Mesh(waterGeometry, waterMaterial);
+  const waterGroup = new THREE.Group();
+  const waterAxisValues = helpers.normalizedAxis(payload.water && payload.water.axis);
+  const waterSloshAxis = new THREE.Vector3(
+    waterAxisValues[0], waterAxisValues[1], waterAxisValues[2]
+  );
+  waterGroup.position.set(
+    waterTransform.center[0],
+    waterTransform.center[1],
+    waterTransform.center[2]
+  );
+  waterGroup.scale.set(
+    waterTransform.scale[0],
+    waterTransform.scale[1],
+    waterTransform.scale[2]
+  );
+  waterGroup.add(waterMesh);
+  scene.add(waterGroup);
+
+  const particleCount = 180;
+  const particlePositions = new Float32Array(particleCount * 3);
+  const particleSeeds = new Float32Array(particleCount * 3);
+  for (let particle = 0; particle < particleCount; particle += 1) {
+    particleSeeds[particle * 3] = ((particle * 73) % particleCount) / particleCount;
+    particleSeeds[particle * 3 + 1] = ((particle * 47 + 19) % particleCount) / particleCount;
+    particleSeeds[particle * 3 + 2] = ((particle * 31 + 7) % particleCount) / particleCount;
+  }
+  const particleGeometry = new THREE.BufferGeometry();
+  const particleAttribute = new THREE.BufferAttribute(particlePositions, 3);
+  particleAttribute.setUsage(THREE.DynamicDrawUsage);
+  particleGeometry.setAttribute("position", particleAttribute);
+  const particleMaterial = new THREE.PointsMaterial({ color: 0xa8e4ff, size: Math.max(payload.water.radius_m / payload.water.scale_to_si * 0.018, 0.5), transparent: true, opacity: 0.75, depthWrite: false });
+  const particles = new THREE.Points(particleGeometry, particleMaterial);
+  waterGroup.add(particles);
+
+  const warnings = helpers.registrationWarnings(payload.parts);
+  if (warnings.length) {
+    registrationWarning.textContent = warnings.join(" ");
+    registrationWarning.hidden = false;
+  }
+
+  const boundsSize = new THREE.Vector3();
+  const boundsCenter = new THREE.Vector3();
+  assemblyBounds.getSize(boundsSize);
+  assemblyBounds.getCenter(boundsCenter);
+  const extent = Math.max(boundsSize.x, boundsSize.y, boundsSize.z, 1);
+  const initialCameraPosition = new THREE.Vector3(
+    boundsCenter.x + extent * 1.2,
+    boundsCenter.y - extent * 1.65,
+    boundsCenter.z + extent * 0.9
+  );
+  const initialTarget = boundsCenter.clone();
+  camera.near = Math.max(extent / 10000, 0.001);
+  camera.far = extent * 20;
+  camera.updateProjectionMatrix();
+
+  function resetCamera(announce = false) {
+    camera.position.copy(initialCameraPosition);
+    controls.target.copy(initialTarget);
+    controls.update();
+    if (announce) announceStatus("Camera reset.");
+  }
+  resetCamera();
+
+  const timeline = payload.timeline;
+  const rpm = Number(payload.metadata.inputs.speed_rpm);
+  const omega = 2 * Math.PI * rpm / 60;
+  const periodSeconds = 60 / rpm;
+  const retainedMass = Number(payload.metadata.water_values.retained_mass_kg);
+  const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let playing = !reducedMotion;
+  speedSelect.value = "1";
+  let speedMultiplier = Number(speedSelect.value);
+  let animationTime = 0;
+  let previousTimestamp = performance.now();
+
+  function updateParticles(phaseRadians, elapsedSeconds) {
+    const radius = payload.water.radius_m / payload.water.scale_to_si;
+    const length = payload.water.length_m / payload.water.scale_to_si;
+    for (let particle = 0; particle < particleCount; particle += 1) {
+      const offset = particle * 3;
+      const axial = (particleSeeds[offset] + elapsedSeconds * (0.025 + particleSeeds[offset + 1] * 0.02)) % 1;
+      const circulation = particleSeeds[offset + 1] * Math.PI * 2 + phaseRadians * 0.32;
+      particlePositions[offset] = (axial - 0.5) * length;
+      particlePositions[offset + 1] = Math.cos(circulation) * radius * (0.42 + particleSeeds[offset + 2] * 0.32);
+      particlePositions[offset + 2] = -radius * 0.38 + Math.sin(circulation) * radius * 0.30;
+    }
+    particleAttribute.needsUpdate = true;
+  }
+
+  function updateScene(phaseDegrees, elapsedSeconds) {
+    const wrappedPhase = ((phaseDegrees % 360) + 360) % 360;
+    const {phaseIndex, nextPhaseIndex, phaseAlpha} = helpers.phaseInterpolation(wrappedPhase, 12);
+    const phaseRadians = THREE.MathUtils.degToRad(wrappedPhase);
+    rotatingGroup.setRotationFromAxisAngle(rotationAxis, phaseRadians);
+
+    const sloshA = timeline[phaseIndex] ? timeline[phaseIndex].slosh_angle_deg : 0;
+    const sloshB = timeline[nextPhaseIndex] ? timeline[nextPhaseIndex].slosh_angle_deg : sloshA;
+    const sloshDegrees = Math.max(-8, Math.min(8, sloshA + (sloshB - sloshA) * phaseAlpha));
+    waterGroup.setRotationFromAxisAngle(
+      waterSloshAxis, THREE.MathUtils.degToRad(sloshDegrees)
+    );
+    updateParticles(phaseRadians, elapsedSeconds);
+
+    let maximumStressPa = NaN;
+    let maximumDisplacementM = NaN;
+    let minimumFos = NaN;
+    for (const item of renderParts) {
+      if (item.scalarPhases) {
+        const phaseA = item.scalarPhases[phaseIndex];
+        const phaseB = item.scalarPhases[nextPhaseIndex];
+        for (let vertexIndex = 0; vertexIndex < phaseA.length; vertexIndex += 1) {
+          const scalar = (phaseA[vertexIndex] + (phaseB[vertexIndex] - phaseA[vertexIndex]) * phaseAlpha) / 255;
+          helpers.writeColorscale(selectedColorscale, scalar, item.colorArray, vertexIndex * 3);
+        }
+        item.mesh.geometry.attributes.color.needsUpdate = true;
+      }
+      const phaseMaximumPa = helpers.interpolatePair(item.phaseMaximumPa, phaseIndex, nextPhaseIndex, phaseAlpha);
+      const phaseMaximumM = helpers.interpolatePair(item.phaseMaximumM, phaseIndex, nextPhaseIndex, phaseAlpha);
+      if (Number.isFinite(phaseMaximumPa)) maximumStressPa = Number.isFinite(maximumStressPa) ? Math.max(maximumStressPa, phaseMaximumPa) : phaseMaximumPa;
+      if (Number.isFinite(phaseMaximumM)) maximumDisplacementM = Number.isFinite(maximumDisplacementM) ? Math.max(maximumDisplacementM, phaseMaximumM) : phaseMaximumM;
+      if (Number.isFinite(phaseMaximumPa) && phaseMaximumPa > 0 && Number.isFinite(item.yieldStrengthPa)) {
+        const componentFos = item.yieldStrengthPa / phaseMaximumPa;
+        minimumFos = Number.isFinite(minimumFos) ? Math.min(minimumFos, componentFos) : componentFos;
+      }
+    }
+
+    const pressureA = timeline[phaseIndex] ? timeline[phaseIndex].pressure_scale_pa : payload.metadata.pressure_values_pa.design;
+    const pressureB = timeline[nextPhaseIndex] ? timeline[nextPhaseIndex].pressure_scale_pa : pressureA;
+    const pressurePa = pressureA + (pressureB - pressureA) * phaseAlpha;
+    phaseSlider.value = wrappedPhase.toFixed(1);
+    phaseOutput.value = `${wrappedPhase.toFixed(1)} degrees`;
+    phaseOutput.textContent = `${wrappedPhase.toFixed(1)} degrees`;
+    values.time.textContent = `${elapsedSeconds.toFixed(3)} s`;
+    values.phase.textContent = `${wrappedPhase.toFixed(1)} degrees`;
+    values.rpm.textContent = rpm.toFixed(1);
+    values.omega.textContent = `${omega.toFixed(3)} rad/s`;
+    values.mass.textContent = `${retainedMass.toFixed(3)} kg`;
+    values.pressure.textContent = `${(pressurePa / 1000).toFixed(3)} kPa`;
+    values.stress.textContent = Number.isFinite(maximumStressPa) ? `${(maximumStressPa / 1e6).toFixed(3)} MPa` : "N/A";
+    values.displacement.textContent = Number.isFinite(maximumDisplacementM) ? `${(maximumDisplacementM * 1000).toFixed(4)} mm` : "N/A";
+    values.fos.textContent = Number.isFinite(minimumFos) ? minimumFos.toFixed(2) : "N/A";
+  }
+
+  function setPlaying(nextPlaying, announce = false) {
+    playing = Boolean(nextPlaying);
+    playPause.textContent = playing ? "Pause" : "Play";
+    playPause.setAttribute("aria-pressed", String(playing));
+    previousTimestamp = performance.now();
+    if (announce) announceStatus(playing ? "Playback started." : "Playback paused.");
+  }
+
+  function resizeRenderer() {
+    const width = Math.max(1, viewport.clientWidth);
+    const height = Math.max(1, viewport.clientHeight);
+    const pixelRatio = renderer.getPixelRatio();
+    if (canvas.width !== Math.floor(width * pixelRatio) || canvas.height !== Math.floor(height * pixelRatio)) {
+      renderer.setSize(width, height, false);
+      camera.aspect = width / height;
+      camera.updateProjectionMatrix();
+    }
+  }
+
+  phaseSlider.addEventListener("input", () => {
+    setPlaying(false);
+    const phase = Number(phaseSlider.value) % 360;
+    animationTime = phase / 360 * periodSeconds;
+    updateScene(phase, animationTime);
+    announceStatus(`Scrubbed to ${phase.toFixed(1)} degrees.`);
+  });
+  playPause.addEventListener("click", () => setPlaying(!playing, true));
+  speedSelect.addEventListener("change", () => { speedMultiplier = Number(speedSelect.value); });
+  document.getElementById("reset-camera").addEventListener("click", () => resetCamera(true));
+  canvas.addEventListener("keydown", (event) => {
+    if (event.key === " " || event.key === "Enter") {
+      event.preventDefault();
+      setPlaying(!playing, true);
+    } else if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+      event.preventDefault();
+      setPlaying(false);
+      const direction = event.key === "ArrowRight" ? 1 : -1;
+      const phase = (Number(phaseSlider.value) + direction * 5 + 360) % 360;
+      animationTime = phase / 360 * periodSeconds;
+      updateScene(phase, animationTime);
+      announceStatus(`Scrubbed to ${phase.toFixed(1)} degrees.`);
+    }
+  });
+
+  function animate(timestamp) {
+    const elapsedSeconds = Math.min(0.1, Math.max(0, (timestamp - previousTimestamp) / 1000));
+    previousTimestamp = timestamp;
+    if (playing) animationTime += elapsedSeconds * speedMultiplier;
+    const phaseDegrees = (animationTime * (rpm / 60) * 360) % 360;
+    updateScene(phaseDegrees, animationTime);
+    resizeRenderer();
+    controls.update();
+    renderer.render(scene, camera);
+    requestAnimationFrame(animate);
+  }
+
+  setPlaying(playing);
+  announceStatus(playing ? "Playback started." : "Playback paused.");
+  updateScene(0, 0);
+  requestAnimationFrame(animate);
+})();
+  </script>
+</body>
+</html>
