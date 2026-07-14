@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
@@ -18,6 +19,17 @@ class FeaActionStateTests(unittest.TestCase):
         state = resolve_fea_action_state(
             cached_package_available=True,
             solver_available=False,
+        )
+
+        self.assertEqual("cache", state.mode)
+        self.assertEqual("Load Cached Stage 1 FEA", state.action_label)
+
+    def test_exact_cache_wins_when_local_solver_is_also_available(self) -> None:
+        from cyclewash_structural_app import resolve_fea_action_state
+
+        state = resolve_fea_action_state(
+            cached_package_available=True,
+            solver_available=True,
         )
 
         self.assertEqual("cache", state.mode)
@@ -73,3 +85,57 @@ class FeaActionStateTests(unittest.TestCase):
         self.assertIn("p_design", summary)
         self.assertIn("47%", summary)
         self.assertIn("38%", summary)
+
+    def test_invalid_request_path_cache_falls_back_without_solved_provenance(self) -> None:
+        from cyclewash_fea_runner import FeaSolverStatus
+        import cyclewash_structural_app as app_module
+        from streamlit.testing.v1 import AppTest
+
+        cases = (
+            (True, "Run Stage 1 FEA", False),
+            (False, None, True),
+        )
+        with TemporaryDirectory() as temporary_directory:
+            candidate_path = Path(temporary_directory)
+            (candidate_path / "summary.json").write_text("{}", encoding="utf-8")
+
+            for solver_available, expected_action, expect_preview in cases:
+                with self.subTest(solver_available=solver_available):
+                    status = FeaSolverStatus(
+                        available=solver_available,
+                        python_path=(Path("solver-python") if solver_available else None),
+                        versions=({"sfepy": "test", "gmsh": "test"} if solver_available else {}),
+                        message="Stage 1 FEA solver status for test.",
+                    )
+                    with (
+                        patch.object(app_module, "detect_fea_solver", return_value=status),
+                        patch.object(app_module, "fea_package_path", return_value=candidate_path),
+                        patch.object(
+                            app_module,
+                            "load_stage1_package",
+                            side_effect=ValueError("request-path cache is invalid"),
+                        ),
+                    ):
+                        app = AppTest.from_file(str(PAGE_PATH)).run(timeout=90)
+                        app.button_group[0].set_value("Simplified Stage 1 FEA").run(timeout=90)
+
+                    self.assertEqual([], app.exception)
+                    self.assertTrue(
+                        any("rejected" in item.value.lower() for item in app.warning)
+                    )
+                    action_labels = [item.label for item in app.button]
+                    self.assertNotIn("Load Cached Stage 1 FEA", action_labels)
+                    if expected_action is not None:
+                        self.assertIn(expected_action, action_labels)
+                    self.assertEqual(
+                        expect_preview,
+                        "Analytical preview" in [item.value for item in app.subheader],
+                    )
+                    notices = [
+                        item.value
+                        for collection in (app.caption, app.info, app.warning)
+                        for item in collection
+                    ]
+                    self.assertFalse(
+                        any("exact solved" in notice.lower() for notice in notices)
+                    )

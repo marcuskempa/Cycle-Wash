@@ -2056,7 +2056,16 @@ def _render_fea_visualizer() -> None:
     else:
         st.caption("Optional local Stage 1 FEA solver is not installed in this environment.")
 
-    cached_package_available = (expected_path / "summary.json").is_file()
+    cached_package_available = False
+    if (expected_path / "summary.json").is_file():
+        try:
+            require_matching_package(
+                load_stage1_package(expected_path), inputs, mesh_levels
+            )
+        except (OSError, ValueError) as error:
+            st.warning(f"Request-path FEA cache was rejected: {error}")
+        else:
+            cached_package_available = True
     if cached_package_available:
         st.caption(f"A request-path cache is available at {expected_path}.")
 
