@@ -112,6 +112,16 @@ def _build_payload(document: ReportDocument, parts: tuple[AssemblyPart, ...]) ->
     shaft = next(part for part in parts if part.name.lower() == "shaft")
     shaft_vertices = np.asarray(shaft.vertices, dtype=float)
     rotation_origin = ((shaft_vertices.min(axis=0) + shaft_vertices.max(axis=0)) / 2.0).tolist()
+    inner_drum = next(
+        part for part in parts if _normalized_name(part.name) == "inner drum"
+    )
+    drum_vertices = np.asarray(inner_drum.vertices, dtype=float)
+    drum_minimum = drum_vertices.min(axis=0)
+    drum_maximum = drum_vertices.max(axis=0)
+    drum_span = drum_maximum - drum_minimum
+    if not np.all(np.isfinite(drum_span)) or np.any(drum_span <= 0.0):
+        raise ValueError("normalized Inner Drum geometry must have finite non-zero bounds")
+    drum_center = (drum_minimum + drum_maximum) / 2.0
     scenarios = {
         report.scenario.name: _scenario_payload(report)
         for report in document.scenario_reports
@@ -128,6 +138,10 @@ def _build_payload(document: ReportDocument, parts: tuple[AssemblyPart, ...]) ->
             "parts": geometry_parts,
             "rotation_axis": [1.0, 0.0, 0.0],
             "rotation_origin": [float(value) for value in rotation_origin],
+            "drum_envelope": {
+                "center_m": [float(value) for value in drum_center],
+                "span_m": [float(value) for value in drum_span],
+            },
             "source": "Normalized authoritative local STL geometry, embedded once.",
             "summary": geometry_summary,
         },

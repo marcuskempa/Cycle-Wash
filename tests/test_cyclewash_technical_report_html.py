@@ -23,6 +23,13 @@ from cyclewash_technical_report import build_report_document
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
+def _payload_from_html(html: str) -> dict[str, object]:
+    payload_text = html.split(
+        '<script id="cyclewash-report-data" type="application/json">', 1
+    )[1].split("</script>", 1)[0]
+    return json.loads(payload_text)
+
+
 def _find_supported_browser() -> Path | None:
     candidates = [
         shutil.which(command)
@@ -234,6 +241,23 @@ class CycleWashTechnicalReportHtmlTests(unittest.TestCase):
         for part in payload["geometry"]["parts"]:
             self.assertIn("base64", part["geometry"]["positions"])
             self.assertIn("base64", part["geometry"]["indices"])
+
+    def test_payload_preserves_shaft_pivot_and_adds_drum_envelope(self) -> None:
+        payload = _payload_from_html(self.html)
+        envelope = payload["geometry"]["drum_envelope"]
+
+        self.assertEqual(3, len(payload["geometry"]["rotation_origin"]))
+        self.assertEqual(3, len(envelope["center_m"]))
+        self.assertEqual(3, len(envelope["span_m"]))
+        self.assertTrue(all(value > 0.0 for value in envelope["span_m"]))
+
+    def test_viewer_uses_blender_z_up_and_drum_relative_contents(self) -> None:
+        self.assertIn("camera.up.set(0, 0, 1)", self.html)
+        self.assertIn("grid.rotation.x = Math.PI / 2", self.html)
+        self.assertIn("payload.geometry.drum_envelope.center_m", self.html)
+        self.assertIn("const laundryBase = drumCenter.clone().sub(origin)", self.html)
+        self.assertIn("water.position.copy(drumCenter)", self.html)
+        self.assertNotIn("new THREE.BoxGeometry(0.55, 0.16, 0.34)", self.html)
 
     def test_scenario_viewer_has_fixed_selected_scenario_and_metrics(self) -> None:
         from cyclewash_technical_report_html import build_scenario_viewer_html
