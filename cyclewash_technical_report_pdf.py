@@ -271,7 +271,7 @@ def _summary_text(document: ReportDocument) -> str:
 
 
 def _scenario_table(reports: Iterable[ScenarioReport], styles: dict[str, ParagraphStyle]) -> Table:
-    rows = [["Scenario", "Speed\nRPM", "Power\nW", "Fill\n%", "Wet laundry\nkg", "Imbalance\nN", "von Mises\nMPa", "FoS\n-"]]
+    rows = [["Scenario", "Speed\nRPM", "Power\nW", "Fill\n%", "Wet laundry\nkg", "Imbalance\nN", "von Mises\nMPa", "FoS\n-", "Result\nsource"]]
     for report in reports:
         scenario = report.scenario
         result = report.results
@@ -285,9 +285,24 @@ def _scenario_table(reports: Iterable[ScenarioReport], styles: dict[str, Paragra
                 f"{result.imbalance_force_n:.1f}",
                 f"{result.von_mises_pa / 1e6:.2f}",
                 f"{result.factor_of_safety:.2f}",
+                Paragraph(report.provenance, styles["small"]),
             ]
         )
-    return _styled_table(rows, [0.85 * inch, 0.46 * inch, 0.46 * inch, 0.42 * inch, 0.63 * inch, 0.58 * inch, 0.66 * inch, 0.42 * inch], styles)
+    return _styled_table(
+        rows,
+        [
+            0.76 * inch,
+            0.42 * inch,
+            0.42 * inch,
+            0.38 * inch,
+            0.58 * inch,
+            0.54 * inch,
+            0.62 * inch,
+            0.38 * inch,
+            1.18 * inch,
+        ],
+        styles,
+    )
 
 
 def _selected_result_table(selected: ScenarioReport, styles: dict[str, ParagraphStyle]) -> Table:

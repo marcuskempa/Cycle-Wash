@@ -142,6 +142,17 @@ class CycleWashTechnicalReportPdfTests(unittest.TestCase):
         self.assertEqual(first_pdf, second_pdf)
         self.assertEqual(3, len(re.findall(rb"/Subtype\s*/Image\b", first_pdf)))
 
+    def test_scenario_comparison_labels_each_row_as_analytical(self) -> None:
+        from cyclewash_technical_report_pdf import _report_styles, _scenario_table
+
+        table = _scenario_table(self.document.scenario_reports, _report_styles())
+        provenance_cells = [row[-1] for row in table._cellvalues[1:]]
+
+        self.assertEqual(3, len(provenance_cells))
+        self.assertTrue(
+            all(cell.getPlainText() == "Analytical load estimate" for cell in provenance_cells)
+        )
+
     def test_rejects_invalid_document_and_stl_root(self) -> None:
         with self.assertRaises(TypeError):
             build_report_pdf(None, PROJECT_ROOT)  # type: ignore[arg-type]

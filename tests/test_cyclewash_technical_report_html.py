@@ -241,6 +241,11 @@ class CycleWashTechnicalReportHtmlTests(unittest.TestCase):
         viewer = build_scenario_viewer_html(self.document, "Heavy", PROJECT_ROOT)
 
         self.assertIn('data-selected-scenario="Heavy"', viewer)
+        self.assertIn('data-viewer-only="true"', viewer)
+        self.assertIn(
+            'body[data-viewer-only="true"] .scenario-selector { display: none; }',
+            viewer,
+        )
         self.assertIn("Wet laundry", viewer)
         self.assertIn("Imbalance force", viewer)
         self.assertIn("water-body", viewer)
