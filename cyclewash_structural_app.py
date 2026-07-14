@@ -2015,7 +2015,7 @@ def _render_fea_visualizer() -> None:
         version_text = ", ".join(f"{name} {version}" for name, version in status.versions.items())
         st.success(f"{status.message} {version_text}")
     else:
-        st.caption("Optional local Stage 1 FEA solver is not installed in this environment.")
+        st.caption(status.message)
 
     cached_package_available = False
     if (expected_path / "summary.json").is_file():
@@ -2134,6 +2134,26 @@ def _render_fea_visualizer() -> None:
             )
             return
         if action_state.mode == "analytical":
+            if missing_export_geometry:
+                missing_text = ", ".join(missing_export_geometry)
+                st.error(
+                    "Analytical preview requires the following STL components: "
+                    f"{missing_text}. Select a folder containing the complete assembly."
+                )
+                st.subheader("Analytical Calculation Summary")
+                st.code(
+                    format_fea_engineering_summary(
+                        inputs,
+                        analytical,
+                        package_summary=(
+                            "Analytical calculations are available, but the STL load map "
+                            f"was not rendered because these components are missing: {missing_text}."
+                        ),
+                    ),
+                    language="text",
+                    wrap_lines=True,
+                )
+                return
             st.subheader("Analytical preview")
             figure, analytical_summary = build_stage1_analytical_preview(
                 animation_parts,

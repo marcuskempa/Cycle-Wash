@@ -67,9 +67,16 @@ def _cached_pdf_bytes(selected_name: str, fea_root: str, stl_root: str) -> bytes
 
 
 @st.cache_data(show_spinner=False)
-def _cached_html_bytes(selected_name: str, fea_root: str, stl_root: str) -> bytes:
-    """Cache the self-contained offline report bytes for the selected scenario."""
+def _cached_html_bytes(
+    selected_name: str,
+    fea_root: str,
+    stl_root: str,
+    asset_fingerprint: str,
+) -> bytes:
+    """Cache offline report bytes by scenario and embedded asset version."""
 
+    if not asset_fingerprint:
+        raise ValueError("asset_fingerprint must not be empty")
     document = _cached_report_document(selected_name, fea_root)
     return build_offline_report_html(document, stl_root)
 
@@ -169,10 +176,20 @@ def _render_comparison(document: ReportDocument) -> None:
     )
 
 
-def _render_downloads(selected_name: str, fea_root: str, stl_root: str) -> None:
+def _render_downloads(
+    selected_name: str,
+    fea_root: str,
+    stl_root: str,
+    asset_fingerprint: str,
+) -> None:
     try:
         pdf_bytes = _cached_pdf_bytes(selected_name, fea_root, stl_root)
-        html_bytes = _cached_html_bytes(selected_name, fea_root, stl_root)
+        html_bytes = _cached_html_bytes(
+            selected_name,
+            fea_root,
+            stl_root,
+            asset_fingerprint,
+        )
     except (OSError, RuntimeError, TypeError, ValueError):
         st.error(
             "Report exports are unavailable. Verify that the local STL files and report assets are present, "
@@ -215,8 +232,8 @@ def main() -> None:
 
     stl_root = str(PROJECT_ROOT)
     fea_root = str(PROJECT_ROOT / "fea_results")
-    viewer_version = viewer_asset_fingerprint()
     try:
+        viewer_version = viewer_asset_fingerprint()
         document = _cached_report_document(selected_name, fea_root)
         viewer_html = _cached_viewer_html(
             selected_name,
@@ -238,7 +255,7 @@ def main() -> None:
         _render_formula(formula)
     _render_comparison(document)
     st.info(LIMITATIONS_NOTE)
-    _render_downloads(selected_name, fea_root, stl_root)
+    _render_downloads(selected_name, fea_root, stl_root, viewer_version)
 
 
 if __name__ == "__main__":

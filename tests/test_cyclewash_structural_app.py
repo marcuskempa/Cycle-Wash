@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import shutil
 from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
@@ -87,6 +88,101 @@ class FeaActionStateTests(unittest.TestCase):
         self.assertIn("p_design", summary)
         self.assertIn("47%", summary)
         self.assertIn("38%", summary)
+
+    def test_hosted_preview_with_missing_stl_geometry_stays_actionable(self) -> None:
+        from cyclewash_fea_runner import FeaSolverStatus
+        import cyclewash_structural_app as app_module
+        from streamlit.testing.v1 import AppTest
+
+        unavailable = FeaSolverStatus(
+            available=False,
+            python_path=None,
+            versions={},
+            message="Stage 1 FEA solver is not installed.",
+        )
+        with TemporaryDirectory() as empty_directory:
+            with patch.object(app_module, "detect_fea_solver", return_value=unavailable):
+                app = AppTest.from_file(str(PAGE_PATH)).run(timeout=90)
+                app.button_group[0].set_value("Simplified Stage 1 FEA").run(timeout=90)
+                next(
+                    item
+                    for item in app.text_input
+                    if item.label == "Animation STL folder or file"
+                ).set_value(empty_directory).run(timeout=90)
+                next(
+                    item for item in app.slider if item.label == "Drum fill (%)"
+                ).set_value(47).run(timeout=90)
+
+        self.assertEqual([], app.exception)
+        messages = [item.value for item in (*app.warning, *app.error, *app.info)]
+        self.assertTrue(
+            any("analytical preview" in message.lower() for message in messages)
+        )
+        self.assertTrue(any("shaft" in message.lower() for message in messages))
+
+    def test_hosted_preview_with_incomplete_stl_geometry_lists_missing_parts(self) -> None:
+        from cyclewash_fea_runner import FeaSolverStatus
+        import cyclewash_structural_app as app_module
+        from streamlit.testing.v1 import AppTest
+
+        unavailable = FeaSolverStatus(
+            available=False,
+            python_path=None,
+            versions={},
+            message="Stage 1 FEA solver is not installed.",
+        )
+        with TemporaryDirectory() as incomplete_directory:
+            shutil.copyfile(
+                PROJECT_ROOT / "shaft.stl",
+                Path(incomplete_directory) / "shaft.stl",
+            )
+            with patch.object(
+                app_module, "detect_fea_solver", return_value=unavailable
+            ):
+                app = AppTest.from_file(str(PAGE_PATH)).run(timeout=90)
+                app.button_group[0].set_value("Simplified Stage 1 FEA").run(timeout=90)
+                next(
+                    item
+                    for item in app.text_input
+                    if item.label == "Animation STL folder or file"
+                ).set_value(incomplete_directory).run(timeout=90)
+                next(
+                    item for item in app.slider if item.label == "Drum fill (%)"
+                ).set_value(47).run(timeout=90)
+
+        self.assertEqual([], app.exception)
+        messages = [item.value for item in (*app.warning, *app.error, *app.info)]
+        combined = "\n".join(messages).lower()
+        self.assertIn("analytical preview", combined)
+        self.assertIn("gear", combined)
+        self.assertIn("inner drum", combined)
+
+    def test_unavailable_solver_displays_its_specific_diagnostic(self) -> None:
+        from cyclewash_fea_runner import FeaSolverStatus
+        import cyclewash_structural_app as app_module
+        from streamlit.testing.v1 import AppTest
+
+        diagnostic = (
+            "Stage 1 FEA solver dependencies are unavailable or broken. "
+            "Re-run setup_cyclewash_fea.bat."
+        )
+        broken = FeaSolverStatus(
+            available=False,
+            python_path=Path("work/.fea-venv/Scripts/python.exe"),
+            versions={},
+            message=diagnostic,
+        )
+        with patch.object(app_module, "detect_fea_solver", return_value=broken):
+            app = AppTest.from_file(str(PAGE_PATH)).run(timeout=90)
+            app.button_group[0].set_value("Simplified Stage 1 FEA").run(timeout=90)
+
+        self.assertEqual([], app.exception)
+        visible_messages = [
+            item.value
+            for collection in (app.caption, app.info, app.warning, app.error)
+            for item in collection
+        ]
+        self.assertIn(diagnostic, visible_messages)
 
     def test_invalid_request_path_cache_falls_back_without_solved_provenance(self) -> None:
         from cyclewash_fea_runner import FeaSolverStatus
