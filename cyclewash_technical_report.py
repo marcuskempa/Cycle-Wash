@@ -17,7 +17,7 @@ from cyclewash_dimensions import (
     SHAFT_DIAMETER_M,
     SHAFT_LENGTH_M,
 )
-from cyclewash_fea_results import Stage1FeaPackage, load_stage1_package
+from cyclewash_fea_results import Stage1FeaPackage, load_stage1_package_read_only
 from cyclewash_fea_runner import package_matches_request, solver_request_hash
 from cyclewash_scenarios import SCENARIOS, OperatingScenario, ScenarioResults, calculate_scenario, scenario_by_name
 
@@ -98,7 +98,12 @@ def build_report_document(
 
     selected_scenario = scenario_by_name(selected_name)
     scenario_reports = tuple(
-        _build_scenario_report(scenario, fea_root) for scenario in SCENARIOS
+        _build_scenario_report(
+            scenario,
+            fea_root,
+            include_fea=scenario == selected_scenario,
+        )
+        for scenario in SCENARIOS
     )
     selected_report = next(
         report for report in scenario_reports if report.scenario == selected_scenario
@@ -112,7 +117,7 @@ def build_report_document(
         drivetrain=drivetrain,
         scenario_reports=scenario_reports,
         selected_report=selected_report,
-        formulas=_formula_catalogue(selected_report, drivetrain, scenario_reports),
+        formulas=_formula_catalogue(selected_report, drivetrain),
         provenance=tuple(report.provenance for report in scenario_reports),
         assumptions=(
             "The shaft is a homogeneous solid circular member with the approved 25 mm diameter.",
@@ -137,10 +142,13 @@ def build_report_document(
 
 
 def _build_scenario_report(
-    scenario: OperatingScenario, fea_root: Path | str | None
+    scenario: OperatingScenario,
+    fea_root: Path | str | None,
+    *,
+    include_fea: bool,
 ) -> ScenarioReport:
     results = calculate_scenario(scenario)
-    package = _load_exact_cached_package(results, fea_root)
+    package = _load_exact_cached_package(results, fea_root) if include_fea else None
     if package is None:
         return ScenarioReport(
             scenario=scenario,
@@ -158,6 +166,8 @@ def _build_scenario_report(
         fea_package=package,
         fea_components=fea_components,
         fea_summary=(
+            f"Scenario: {scenario.name}",
+            f"Provenance: {SOLVED_FEA_PROVENANCE}",
             f"Stage 1 package schema: {package.schema_version}",
             "Mesh levels: " + ", ".join(CANONICAL_FEA_MESH_LEVELS),
             *(_format_fea_component_summary(component) for component in fea_components),
@@ -221,7 +231,7 @@ def _load_exact_cached_package(
     if not package_path.is_dir():
         return None
     try:
-        package = load_stage1_package(package_path)
+        package = load_stage1_package_read_only(package_path)
     except (OSError, ValueError):
         return None
     if package_matches_request(package, results.inputs, CANONICAL_FEA_MESH_LEVELS):
@@ -243,7 +253,6 @@ def _project_dimensions() -> tuple[SymbolDefinition, ...]:
 def _formula_catalogue(
     selected: ScenarioReport,
     drivetrain: DriveResult,
-    scenario_reports: tuple[ScenarioReport, ...],
 ) -> tuple[FormulaDefinition, ...]:
     results = selected.results
     inputs = results.inputs
@@ -448,10 +457,10 @@ def _formula_catalogue(
             "A value above one indicates that this analytical stress estimate is below nominal yield. It does not remove the need to assess fatigue, joints, bearings, defects, and omitted dynamics.",
         ),
     )
-    fea_formulas = tuple(
-        _fea_result_formula(report)
-        for report in scenario_reports
-        if report.fea_package is not None
+    fea_formulas = (
+        (_fea_result_formula(selected),)
+        if selected.fea_package is not None
+        else ()
     )
     return analytical_formulas + fea_formulas
 
@@ -478,7 +487,7 @@ def _fea_result_formula(report: ScenarioReport) -> FormulaDefinition:
         )
     return FormulaDefinition(
         identifier="fea_result_definitions",
-        title="Cached Stage 1 FEA Result Definitions",
+        title=f"{report.scenario.name} Cached Stage 1 FEA Result Definitions",
         latex=(
             r"\sigma_{vm,max,c}=\max_i(\sigma_{vm,c,i}), \quad "
             r"u_{max,c}=\max_j\sqrt{u_{x,c,j}^2+u_{y,c,j}^2+u_{z,c,j}^2}, \quad "
@@ -490,7 +499,12 @@ def _fea_result_formula(report: ScenarioReport) -> FormulaDefinition:
             "u<sub>y,c,j</sub><sup>2</sup> + u<sub>z,c,j</sub><sup>2</sup>); "
             "FoS<sub>min,c</sub> = min<sub>j</sub>(FoS<sub>c,j</sub>)</div>"
         ),
-        evaluated=f"mesh_level = {mesh_text}; " + "; ".join(evaluated_components) + ".",
+        evaluated=(
+            f"scenario = {report.scenario.name}; provenance = {SOLVED_FEA_PROVENANCE}; "
+            f"mesh_level = {mesh_text}; "
+            + "; ".join(evaluated_components)
+            + "."
+        ),
         symbols=(
             _symbol("sigma_vm,max,c", "maximum nodal von Mises stress for component c", "Pa", "exact cached FEA package"),
             _symbol("sigma_vm,c,i", "nodal von Mises stress at stress sample i for component c", "Pa", "exact cached FEA package"),
@@ -508,8 +522,9 @@ def _fea_result_formula(report: ScenarioReport) -> FormulaDefinition:
             _symbol("j", "mesh node index", "dimensionless", "exact cached FEA package"),
         ),
         explanation=(
-            "These extrema and mesh counts come from the exact cached Stage 1 package. The model is "
-            "linear-static with reduced-order loads; nodal maxima are not transient structural analysis or CFD."
+            f"For {report.scenario.name}, these extrema and mesh counts carry {SOLVED_FEA_PROVENANCE} "
+            "provenance from the exact cached Stage 1 package. The model is linear-static with reduced-order "
+            "loads; nodal maxima are not transient structural analysis or CFD."
         ),
     )
 

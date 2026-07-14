@@ -324,6 +324,12 @@ def load_stage1_package(directory: Path) -> Stage1FeaPackage:
     return _load_stage1_package_contents(package_directory)
 
 
+def load_stage1_package_read_only(directory: Path) -> Stage1FeaPackage:
+    """Load and validate a package without recovering or mutating cache state."""
+
+    return _load_stage1_package_contents(Path(directory))
+
+
 def _load_stage1_package_contents(package_directory: Path) -> Stage1FeaPackage:
     summary_path = package_directory / "summary.json"
     if not summary_path.is_file():

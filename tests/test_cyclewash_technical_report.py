@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import FrozenInstanceError
 from pathlib import Path
+import shutil
 from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
@@ -14,6 +15,7 @@ from cyclewash_technical_report import (
     CANONICAL_FEA_MESH_LEVELS,
     build_report_document,
 )
+from tests.test_cyclewash_fea_results import EXACT_PACKAGE_HASH, snapshot_tree
 
 
 REQUIRED_FORMULA_IDENTIFIERS = {
@@ -108,6 +110,33 @@ EXPECTED_FORMULA_SYMBOLS = {
 
 
 class CycleWashTechnicalReportTests(unittest.TestCase):
+    def test_default_cache_is_not_attached_to_gentle_or_heavy_reports(self) -> None:
+        project_root = Path(__file__).resolve().parents[1]
+
+        for selected_name in ("Gentle", "Heavy"):
+            with self.subTest(selected_name=selected_name):
+                document = build_report_document(
+                    selected_name, project_root / "fea_results"
+                )
+
+                self.assertEqual(selected_name, document.selected_report.scenario.name)
+                self.assertEqual(
+                    "Analytical load estimate", document.selected_report.provenance
+                )
+                self.assertTrue(
+                    all(report.fea_package is None for report in document.scenario_reports)
+                )
+                self.assertTrue(
+                    all(not report.fea_components for report in document.scenario_reports)
+                )
+                self.assertTrue(
+                    all(not report.fea_summary for report in document.scenario_reports)
+                )
+                self.assertNotIn(
+                    "fea_result_definitions",
+                    {formula.identifier for formula in document.formulas},
+                )
+
     def test_normal_uses_the_exact_default_coarse_cache_without_solving(self) -> None:
         project_root = Path(__file__).resolve().parents[1]
         normal_inputs = scenario_by_name("Normal").engineering_inputs()
@@ -125,6 +154,37 @@ class CycleWashTechnicalReportTests(unittest.TestCase):
         )
         self.assertEqual("Solved Stage 1 FEA", document.selected_report.provenance)
         self.assertIsNotNone(document.selected_report.fea_package)
+
+    def test_report_cache_reads_never_recover_or_mutate_backup_states(self) -> None:
+        project_root = Path(__file__).resolve().parents[1]
+        source_package = project_root / "fea_results" / EXACT_PACKAGE_HASH
+        states = (
+            ("valid destination", True, True, "Solved Stage 1 FEA"),
+            ("invalid destination", True, False, "Analytical load estimate"),
+            ("missing destination", False, False, "Analytical load estimate"),
+        )
+
+        for label, destination_exists, destination_is_valid, provenance in states:
+            with self.subTest(state=label), TemporaryDirectory() as temporary_directory:
+                root = Path(temporary_directory)
+                destination = root / EXACT_PACKAGE_HASH
+                backup = root / f".{EXACT_PACKAGE_HASH}.backup"
+                if destination_exists and destination_is_valid:
+                    shutil.copytree(source_package, destination)
+                elif destination_exists:
+                    destination.mkdir()
+                    (destination / "summary.json").write_bytes(b"not valid package JSON")
+                shutil.copytree(source_package, backup)
+                before = snapshot_tree(root)
+
+                with patch(
+                    "cyclewash_fea_runner.run_fea_subprocess",
+                    side_effect=AssertionError("report generation must never invoke the solver"),
+                ):
+                    document = build_report_document("Normal", root)
+
+                self.assertEqual(provenance, document.selected_report.provenance)
+                self.assertEqual(before, snapshot_tree(root))
 
     def test_drivetrain_distinguishes_target_from_practical_drum_speed(self) -> None:
         with TemporaryDirectory() as temporary_directory:
@@ -166,6 +226,8 @@ class CycleWashTechnicalReportTests(unittest.TestCase):
         self.assertAlmostEqual(8.041658397249357, components["shaft"].minimum_factor_of_safety)
         self.assertEqual(226, components["shaft"].node_count)
         self.assertEqual(619, components["shaft"].element_count)
+        self.assertIn("Scenario: Normal", report.fea_summary)
+        self.assertIn("Provenance: Solved Stage 1 FEA", report.fea_summary)
         self.assertTrue(any("shaft" in line.lower() for line in report.fea_summary))
         self.assertTrue(any("31.088 MPa" in line for line in report.fea_summary))
         self.assertTrue(any("0.0421 mm" in line for line in report.fea_summary))
@@ -192,12 +254,19 @@ class CycleWashTechnicalReportTests(unittest.TestCase):
             {symbol.symbol for symbol in fea_formula.symbols},
         )
         self.assertIn("mesh_level = coarse", fea_formula.evaluated)
+        self.assertTrue(
+            fea_formula.evaluated.startswith(
+                "scenario = Normal; provenance = Solved Stage 1 FEA;"
+            )
+        )
         self.assertIn("shaft: sigma_vm,max = 3.108811e+07 Pa (31.088 MPa)", fea_formula.evaluated)
         self.assertIn("u_max = 4.212653e-05 m (0.0421 mm)", fea_formula.evaluated)
         self.assertIn("FoS_min = 8.0417", fea_formula.evaluated)
         self.assertIn("n_node = 226 nodes; n_element = 619 elements", fea_formula.evaluated)
         self.assertIn("linear-static", fea_formula.explanation)
         self.assertIn("not transient structural analysis or CFD", fea_formula.explanation)
+        self.assertIn("Normal", fea_formula.explanation)
+        self.assertIn("Solved Stage 1 FEA", fea_formula.explanation)
 
     def test_report_contains_all_scenarios_and_selected_detail(self) -> None:
         document = build_report_document("Normal")
