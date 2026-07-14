@@ -17,7 +17,11 @@ import unittest
 import numpy as np
 
 from cyclewash_structural_visualizer import AssemblyPart
-from cyclewash_technical_report import build_report_document
+from cyclewash_technical_report import (
+    LIMITATIONS_NOTE,
+    build_report_document,
+    core_formulas,
+)
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -80,19 +84,37 @@ class CycleWashTechnicalReportHtmlTests(unittest.TestCase):
         self.assertIn("OrbitControls", self.html)
         self.assertIn("Relative analytical load", self.html)
         self.assertIn("Scenario comparison", self.html)
-        self.assertIn("Assumptions", self.html)
         self.assertIn("Limitations", self.html)
-        self.assertIn("Engineering interpretation", self.html)
         self.assertIn("Conclusion", self.html)
         for scenario in ("Gentle", "Normal", "Heavy"):
             self.assertIn(scenario, self.html)
         for control in ("scenario-selector", "play-pause", "phase-slider", "speed-select"):
             self.assertIn(f'id="{control}"', self.html)
-        for formula in self.document.formulas:
+        for formula in core_formulas(self.document):
             self.assertIn(formula.title, self.html)
             self.assertIn(formula.evaluated, self.html)
             self.assertIn("Symbol", self.html)
-            self.assertIn("Source", self.html)
+            self.assertIn("Evaluated substitution", self.html)
+
+    def test_embedded_viewer_only_exposes_animation_controls(self) -> None:
+        from cyclewash_technical_report_html import build_scenario_viewer_html
+
+        viewer = build_scenario_viewer_html(self.document, "Normal", PROJECT_ROOT)
+
+        self.assertIn('data-viewer-only="true"', viewer)
+        self.assertIn('body[data-viewer-only="true"] .viewer-header', viewer)
+        self.assertIn('body[data-viewer-only="true"] .metrics', viewer)
+        self.assertIn('body[data-viewer-only="true"] .scene-label', viewer)
+        self.assertIn('id="play-pause"', viewer)
+        self.assertIn('id="phase-slider"', viewer)
+        self.assertIn('id="speed-select"', viewer)
+
+    def test_offline_report_contains_only_core_equations_and_one_limitation(self) -> None:
+        for formula in core_formulas(self.document):
+            self.assertIn(formula.title, self.html)
+        self.assertNotIn("Exact FEA Result And Provenance", self.html)
+        self.assertNotIn("Project Dimensions And Drivetrain", self.html)
+        self.assertEqual(1, self.html.count(LIMITATIONS_NOTE))
 
     def test_export_is_offline_safe_and_deterministic(self) -> None:
         from cyclewash_technical_report_html import build_offline_report_html

@@ -22,6 +22,11 @@
     .controls { display: grid; gap: 12px; align-content: start; }
     .scenario-selector { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
     body[data-viewer-only="true"] .scenario-selector { display: none; }
+    body[data-viewer-only="true"] .viewer-header,
+    body[data-viewer-only="true"] .metrics,
+    body[data-viewer-only="true"] .scene-label { display: none; }
+    body[data-viewer-only="true"] .viewer-shell { padding: 0; }
+    body[data-viewer-only="true"] .viewer-grid { margin-top: 0; }
     .scenario-selector button, #play-pause { border: 1px solid #64748b; background: #223046; color: #edf2f7; padding: 8px 10px; cursor: pointer; }
     .scenario-selector button[aria-pressed="true"] { background: #0f766e; border-color: #5eead4; }
     .control-row { display: grid; gap: 5px; font-size: .9rem; }
