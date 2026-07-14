@@ -21,12 +21,15 @@
     .controls, .metrics { border: 1px solid #334155; padding: 12px; background: #162131; }
     .controls { display: grid; gap: 12px; align-content: start; }
     .scenario-selector { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+    body[data-viewer-only="true"] { overflow: hidden; background: #101722; }
     body[data-viewer-only="true"] .scenario-selector { display: none; }
     body[data-viewer-only="true"] .viewer-header,
     body[data-viewer-only="true"] .metrics,
     body[data-viewer-only="true"] .scene-label { display: none; }
-    body[data-viewer-only="true"] .viewer-shell { padding: 0; }
-    body[data-viewer-only="true"] .viewer-grid { margin-top: 0; }
+    body[data-viewer-only="true"] .viewer-shell { min-height: 100vh; padding: 0; }
+    body[data-viewer-only="true"] .viewer-grid { height: 100vh; margin-top: 0; }
+    body[data-viewer-only="true"] .scene-wrap,
+    body[data-viewer-only="true"] #scene { height: 100%; min-height: 0; }
     .scenario-selector button, #play-pause { border: 1px solid #64748b; background: #223046; color: #edf2f7; padding: 8px 10px; cursor: pointer; }
     .scenario-selector button[aria-pressed="true"] { background: #0f766e; border-color: #5eead4; }
     .control-row { display: grid; gap: 5px; font-size: .9rem; }
@@ -55,6 +58,9 @@
       .viewer-shell { padding: 14px; }
       .viewer-grid { grid-template-columns: 1fr; }
       .scene-wrap, #scene { min-height: 360px; }
+      body[data-viewer-only="true"] .viewer-grid {
+        grid-template-rows: minmax(360px, 1fr) auto;
+      }
       .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .technical-report { padding: 20px 14px; }
     }

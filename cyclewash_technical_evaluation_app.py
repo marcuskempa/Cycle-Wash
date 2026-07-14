@@ -63,8 +63,8 @@ def _cached_html_bytes(selected_name: str, fea_root: str, stl_root: str) -> byte
     return build_offline_report_html(document, stl_root)
 
 
-def _format_stress_mpa(stress_pa: float) -> str:
-    return f"{stress_pa / 1.0e6:.2f} MPa"
+def _format_stress_mpa(stress_pa: float, digits: int = 2) -> str:
+    return f"{stress_pa / 1.0e6:.{digits}f} MPa"
 
 
 def _split_latex_displays(latex: str) -> tuple[str, ...]:
@@ -111,7 +111,7 @@ def _render_selected_metrics(document: ReportDocument) -> None:
         ("Current RPM", f"{report.scenario.speed_rpm:.0f} RPM"),
         ("Water mass", f"{analytical.retained_water_mass_kg:.1f} kg"),
         ("Imbalance force", f"{results.imbalance_force_n:.1f} N"),
-        ("Combined shaft stress", _format_stress_mpa(results.von_mises_pa)),
+        ("Combined shaft stress", _format_stress_mpa(results.von_mises_pa, digits=1)),
         ("Factor of safety", f"{results.factor_of_safety:.2f}"),
     )
     columns = st.columns(len(metrics))
