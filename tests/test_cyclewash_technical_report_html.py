@@ -14,6 +14,7 @@ import subprocess
 from tempfile import TemporaryDirectory
 import threading
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 
@@ -110,6 +111,46 @@ class CycleWashTechnicalReportHtmlTests(unittest.TestCase):
         self.assertIn('id="play-pause"', viewer)
         self.assertIn('id="phase-slider"', viewer)
         self.assertIn('id="speed-select"', viewer)
+
+    def test_viewer_only_uses_horizontal_toolbar_above_full_width_canvas(self) -> None:
+        from cyclewash_technical_report_html import build_scenario_viewer_html
+
+        viewer = build_scenario_viewer_html(self.document, "Normal", PROJECT_ROOT)
+
+        self.assertLess(
+            viewer.index('<div class="controls"'),
+            viewer.index('<div class="scene-wrap">'),
+        )
+        self.assertIn('grid-template-areas: "playback phase speed";', viewer)
+        self.assertNotIn("grid-template-columns: minmax(0, 1fr) 280px", viewer)
+        self.assertIn(
+            '<p id="viewer-status" class="viewer-status" role="status" '
+            'aria-live="polite">Viewer starting...</p>',
+            viewer,
+        )
+        self.assertIn("viewerStatus.hidden = true;", viewer)
+
+    def test_viewer_asset_fingerprint_changes_with_template_or_runtime(self) -> None:
+        import cyclewash_technical_report_html as html_module
+
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            template = root / "template.html"
+            runtime = root / "runtime.js"
+            template.write_text("template-v1", encoding="utf-8")
+            runtime.write_bytes(b"runtime-v1")
+            with patch.object(html_module, "TEMPLATE_PATH", template), patch.object(
+                html_module, "THREE_BUNDLE_PATH", runtime
+            ):
+                first = html_module.viewer_asset_fingerprint()
+                template.write_text("template-v2", encoding="utf-8")
+                second = html_module.viewer_asset_fingerprint()
+                runtime.write_bytes(b"runtime-v2")
+                third = html_module.viewer_asset_fingerprint()
+
+        self.assertRegex(first, r"^[0-9a-f]{64}$")
+        self.assertNotEqual(first, second)
+        self.assertNotEqual(second, third)
 
     def test_offline_report_contains_only_core_equations_and_one_limitation(self) -> None:
         rendered_formula_ids = tuple(
