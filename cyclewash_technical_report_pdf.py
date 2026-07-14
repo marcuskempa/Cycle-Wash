@@ -181,7 +181,10 @@ def _report_story(document: ReportDocument, stl_root: Path, styles: dict[str, Pa
         ("Imbalance force", f"{selected.results.imbalance_force_n:.2f} N"),
         ("Shaft von Mises", f"{selected.results.von_mises_pa / 1.0e6:.2f} MPa"),
         ("Analytical yield FoS", f"{selected.results.factor_of_safety:.2f}"),
-        ("Structural provenance", selected.provenance),
+        (
+            "Water mass",
+            f"{selected.results.analytical.retained_water_mass_kg:.1f} kg",
+        ),
     )
     return [
         Paragraph("CycleWash Technical Evaluation", styles["title"]),
@@ -196,7 +199,7 @@ def _report_story(document: ReportDocument, stl_root: Path, styles: dict[str, Pa
         Paragraph("Engineering Interpretation", styles["section"]),
         Paragraph(document.engineering_interpretation, styles["body"]),
         Paragraph("Conclusion", styles["section"]),
-        Paragraph(document.conclusion, styles["body"]),
+        Paragraph(_conclusion_text(document), styles["body"]),
         Paragraph("Limitations", styles["section"]),
         Paragraph(LIMITATIONS_NOTE, styles["body"]),
     ]
@@ -205,14 +208,39 @@ def _report_story(document: ReportDocument, stl_root: Path, styles: dict[str, Pa
 def _summary_text(document: ReportDocument) -> str:
     selected = document.selected_report
     return (
-        f"CycleWash is evaluated at three approved manual-drive operating scenarios. The selected {selected.scenario.name} case uses "
-        f"{selected.scenario.human_power_w:.0f} W at {selected.scenario.speed_rpm:.0f} RPM with "
-        f"{selected.scenario.laundry_mass_kg:.1f} kg effective wet laundry. {document.engineering_interpretation}"
+        "CycleWash compares three approved manual-drive washing scenarios using "
+        "simplified drivetrain, retained-water, imbalance, and shaft calculations "
+        "for an introductory engineering design study. Page 1 summarizes the "
+        f"selected {selected.scenario.name} operating point and compares it with "
+        "the other approved cases."
     )
 
 
-def _scenario_table(reports: Iterable[ScenarioReport], styles: dict[str, ParagraphStyle]) -> Table:
-    rows = [["Scenario", "Speed\nRPM", "Power\nW", "Fill\n%", "Wet laundry\nkg", "Imbalance\nN", "von Mises\nMPa", "FoS\n-", "Result\nsource"]]
+def _conclusion_text(document: ReportDocument) -> str:
+    selected = document.selected_report
+    return (
+        f"For the {selected.scenario.name} operating point, the estimated shaft "
+        f"factor of safety is {selected.results.factor_of_safety:.2f}. These results "
+        "support transparent concept comparison; detailed dynamic, fatigue, bearing, "
+        "and joint validation would still be required before fabrication."
+    )
+
+
+def _scenario_table(
+    reports: Iterable[ScenarioReport], styles: dict[str, ParagraphStyle]
+) -> Table:
+    rows = [
+        [
+            "Scenario",
+            "Speed\nRPM",
+            "Power\nW",
+            "Fill\n%",
+            "Wet laundry\nkg",
+            "Imbalance\nN",
+            "von Mises\nMPa",
+            "FoS\n-",
+        ]
+    ]
     for report in reports:
         scenario = report.scenario
         result = report.results
@@ -226,21 +254,19 @@ def _scenario_table(reports: Iterable[ScenarioReport], styles: dict[str, Paragra
                 f"{result.imbalance_force_n:.1f}",
                 f"{result.von_mises_pa / 1e6:.2f}",
                 f"{result.factor_of_safety:.2f}",
-                Paragraph(report.provenance, styles["small"]),
             ]
         )
     return _styled_table(
         rows,
         [
-            0.76 * inch,
-            0.42 * inch,
-            0.42 * inch,
-            0.38 * inch,
-            0.58 * inch,
-            0.54 * inch,
-            0.62 * inch,
-            0.38 * inch,
-            1.18 * inch,
+            0.85 * inch,
+            0.55 * inch,
+            0.55 * inch,
+            0.50 * inch,
+            0.72 * inch,
+            0.67 * inch,
+            0.80 * inch,
+            0.64 * inch,
         ],
         styles,
     )

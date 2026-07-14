@@ -293,6 +293,84 @@ class CycleWashTechnicalReportHtmlTests(unittest.TestCase):
         self.assertIn("water.position.copy(drumCenter)", self.html)
         self.assertNotIn("new THREE.BoxGeometry(0.55, 0.16, 0.34)", self.html)
 
+    def test_water_and_laundry_remain_inside_drum_envelope_at_cardinal_phases(
+        self,
+    ) -> None:
+        payload = _payload_from_html(self.html)
+        geometry = payload["geometry"]
+        envelope = geometry["drum_envelope"]
+        origin = np.asarray(geometry["rotation_origin"], dtype=float)
+        drum_center = np.asarray(envelope["center_m"], dtype=float)
+        drum_span = np.asarray(envelope["span_m"], dtype=float)
+        lower_bound = drum_center - drum_span / 2.0
+        upper_bound = drum_center + drum_span / 2.0
+        laundry_radius_m = 0.035
+
+        for scenario_name, scenario in payload["scenarios"].items():
+            fill_fraction = float(scenario["fill_fraction"])
+            eccentricity_m = float(scenario["eccentricity_m"])
+            laundry_local = drum_center - origin + np.asarray(
+                [0.0, eccentricity_m, 0.0]
+            )
+            water_radii = np.asarray(
+                [
+                    drum_span[0] * 0.38,
+                    drum_span[1] * 0.38,
+                    drum_span[2] * 0.38 * max(0.18, fill_fraction),
+                ]
+            )
+            water_center = drum_center.copy()
+            water_center[2] -= drum_span[2] * 0.18 * (1.0 - fill_fraction)
+
+            for phase_degrees in (0.0, 90.0, 180.0, 270.0):
+                phase_radians = np.deg2rad(phase_degrees)
+                cosine = np.cos(phase_radians)
+                sine = np.sin(phase_radians)
+                laundry_center = origin + np.asarray(
+                    [
+                        laundry_local[0],
+                        cosine * laundry_local[1] - sine * laundry_local[2],
+                        sine * laundry_local[1] + cosine * laundry_local[2],
+                    ]
+                )
+
+                slosh_radians = np.sin(
+                    phase_radians - np.pi / 4.0
+                ) * np.deg2rad(8.0)
+                slosh_cosine = np.cos(slosh_radians)
+                slosh_sine = np.sin(slosh_radians)
+                water_extents = np.asarray(
+                    [
+                        water_radii[0],
+                        np.hypot(
+                            water_radii[1] * slosh_cosine,
+                            water_radii[2] * slosh_sine,
+                        ),
+                        np.hypot(
+                            water_radii[1] * slosh_sine,
+                            water_radii[2] * slosh_cosine,
+                        ),
+                    ]
+                )
+
+                context = f"{scenario_name} at {phase_degrees:.0f} degrees"
+                self.assertTrue(
+                    np.all(laundry_center - laundry_radius_m >= lower_bound),
+                    f"laundry lower extent escaped the drum for {context}",
+                )
+                self.assertTrue(
+                    np.all(laundry_center + laundry_radius_m <= upper_bound),
+                    f"laundry upper extent escaped the drum for {context}",
+                )
+                self.assertTrue(
+                    np.all(water_center - water_extents >= lower_bound),
+                    f"water lower extent escaped the drum for {context}",
+                )
+                self.assertTrue(
+                    np.all(water_center + water_extents <= upper_bound),
+                    f"water upper extent escaped the drum for {context}",
+                )
+
     def test_scenario_viewer_has_fixed_selected_scenario_and_metrics(self) -> None:
         from cyclewash_technical_report_html import build_scenario_viewer_html
 
