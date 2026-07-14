@@ -274,6 +274,38 @@ window.CycleWashThree = CycleWashThree;
       for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
       return new Type(bytes.buffer);
     }
+    function deriveDrumEnvelope(parts) {
+      const drumPart = parts.find(function (part) {
+        const normalizedName = String(part.name || "").toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
+        return normalizedName === "inner drum";
+      });
+      if (!drumPart || !drumPart.geometry || !drumPart.geometry.positions) return null;
+      const positions = decode(drumPart.geometry.positions, Float32Array);
+      if (positions.length < 3 || positions.length % 3 !== 0) return null;
+      const minimum = [Infinity, Infinity, Infinity];
+      const maximum = [-Infinity, -Infinity, -Infinity];
+      for (let index = 0; index < positions.length; index += 3) {
+        for (let axis = 0; axis < 3; axis += 1) {
+          const value = positions[index + axis];
+          if (!Number.isFinite(value)) return null;
+          minimum[axis] = Math.min(minimum[axis], value);
+          maximum[axis] = Math.max(maximum[axis], value);
+        }
+      }
+      const center = minimum.map(function (value, axis) { return (value + maximum[axis]) / 2; });
+      const span = minimum.map(function (value, axis) { return maximum[axis] - value; });
+      if (span.some(function (value) { return !Number.isFinite(value) || value <= 0; })) return null;
+      return { center_m: center, span_m: span };
+    }
+    function resolveDrumEnvelope(geometryPayload) {
+      const envelope = geometryPayload.drum_envelope;
+      const validCenter = envelope && Array.isArray(envelope.center_m) && envelope.center_m.length === 3 && envelope.center_m.every(Number.isFinite);
+      const validSpan = envelope && Array.isArray(envelope.span_m) && envelope.span_m.length === 3 && envelope.span_m.every(function (value) { return Number.isFinite(value) && value > 0; });
+      if (validCenter && validSpan) return envelope;
+      const derived = deriveDrumEnvelope(geometryPayload.parts || []);
+      if (!derived) throw new Error("Viewer payload is missing valid Inner Drum envelope geometry.");
+      return derived;
+    }
     payload.geometry.parts.forEach(function (part) {
       const geometry = new THREE.BufferGeometry();
       geometry.setAttribute("position", new THREE.BufferAttribute(decode(part.geometry.positions, Float32Array), 3));
@@ -284,8 +316,9 @@ window.CycleWashThree = CycleWashThree;
       if (part.rotating) { mesh.position.copy(origin).multiplyScalar(-1); rotor.add(mesh); rotatingMaterials.push(material); }
       else scene.add(mesh);
     });
-    const drumCenter = new THREE.Vector3().fromArray(payload.geometry.drum_envelope.center_m);
-    const drumSpan = new THREE.Vector3().fromArray(payload.geometry.drum_envelope.span_m);
+    const drumEnvelope = resolveDrumEnvelope(payload.geometry);
+    const drumCenter = new THREE.Vector3().fromArray(drumEnvelope.center_m);
+    const drumSpan = new THREE.Vector3().fromArray(drumEnvelope.span_m);
     const water = new THREE.Mesh(
       new THREE.SphereGeometry(1, 32, 18),
       new THREE.MeshStandardMaterial({ color: 0x0ea5e9, transparent: true, opacity: 0.42, roughness: 0.25 })

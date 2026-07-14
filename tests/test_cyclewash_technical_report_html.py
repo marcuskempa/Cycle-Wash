@@ -38,6 +38,16 @@ def _payload_from_html(html: str) -> dict[str, object]:
     return json.loads(payload_text)
 
 
+def _without_drum_envelope(html: str) -> str:
+    prefix = '<script id="cyclewash-report-data" type="application/json">'
+    before, payload_and_after = html.split(prefix, 1)
+    payload_text, after = payload_and_after.split("</script>", 1)
+    payload = json.loads(payload_text)
+    payload["geometry"].pop("drum_envelope", None)
+    stale_payload = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return f"{before}{prefix}{stale_payload}</script>{after}"
+
+
 def _find_supported_browser() -> Path | None:
     candidates = [
         shutil.which(command)
@@ -148,10 +158,35 @@ class CycleWashTechnicalReportHtmlTests(unittest.TestCase):
                 second = html_module.viewer_asset_fingerprint()
                 runtime.write_bytes(b"runtime-v2")
                 third = html_module.viewer_asset_fingerprint()
+                with patch.object(
+                    html_module,
+                    "VIEWER_PAYLOAD_SCHEMA_VERSION",
+                    "cyclewash-test-schema-v2",
+                    create=True,
+                ):
+                    fourth = html_module.viewer_asset_fingerprint()
 
         self.assertRegex(first, r"^[0-9a-f]{64}$")
         self.assertNotEqual(first, second)
         self.assertNotEqual(second, third)
+        self.assertNotEqual(third, fourth)
+
+    def test_viewer_recovers_drum_envelope_from_stale_payload_geometry(self) -> None:
+        stale_html = _without_drum_envelope(self.html)
+        stale_payload = _payload_from_html(stale_html)
+        expected_runtime_contract = (
+            "function deriveDrumEnvelope(parts)",
+            "function resolveDrumEnvelope(geometryPayload)",
+            "geometryPayload.drum_envelope",
+            'normalizedName === "inner drum"',
+            "const drumEnvelope = resolveDrumEnvelope(payload.geometry);",
+            "new THREE.Vector3().fromArray(drumEnvelope.center_m)",
+            "new THREE.Vector3().fromArray(drumEnvelope.span_m)",
+        )
+
+        self.assertNotIn("drum_envelope", stale_payload["geometry"])
+        for statement in expected_runtime_contract:
+            self.assertIn(statement, stale_html)
 
     def test_offline_report_contains_only_core_equations_and_one_limitation(self) -> None:
         rendered_formula_ids = tuple(
@@ -213,7 +248,7 @@ class CycleWashTechnicalReportHtmlTests(unittest.TestCase):
             self.html.index("window.CycleWashThree = CycleWashThree;"),
         )
 
-    def test_generated_page_executes_two_frames_and_makes_no_network_requests(self) -> None:
+    def test_stale_payload_page_executes_two_frames_without_network_requests(self) -> None:
         browser = _find_supported_browser()
         if browser is None:
             self.skipTest(
@@ -222,7 +257,8 @@ class CycleWashTechnicalReportHtmlTests(unittest.TestCase):
 
         with TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
-            (root / "report.html").write_bytes(self.html_bytes)
+            stale_html = _without_drum_envelope(self.html)
+            (root / "report.html").write_text(stale_html, encoding="utf-8")
             _RecordingHttpHandler.request_paths = []
             handler = partial(_RecordingHttpHandler, directory=str(root))
             server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
@@ -379,7 +415,7 @@ class CycleWashTechnicalReportHtmlTests(unittest.TestCase):
     def test_viewer_uses_blender_z_up_and_drum_relative_contents(self) -> None:
         self.assertIn("camera.up.set(0, 0, 1)", self.html)
         self.assertIn("grid.rotation.x = Math.PI / 2", self.html)
-        self.assertIn("payload.geometry.drum_envelope.center_m", self.html)
+        self.assertIn("drumEnvelope.center_m", self.html)
         self.assertIn("const laundryBase = drumCenter.clone().sub(origin)", self.html)
         self.assertIn("water.position.copy(drumCenter)", self.html)
         self.assertNotIn("new THREE.BoxGeometry(0.55, 0.16, 0.34)", self.html)
