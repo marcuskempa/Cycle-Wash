@@ -8,7 +8,6 @@ import re
 
 try:
     import streamlit as st
-    import streamlit.components.v1 as components
 except ImportError as error:
     missing_name = getattr(error, "name", "streamlit")
     raise SystemExit(
@@ -295,7 +294,7 @@ def main() -> None:
     with presentation_tab:
         viewer_column, metric_column = st.columns((1.7, 1.0), gap="large")
         with viewer_column:
-            components.html(viewer_html, height=680, scrolling=False)
+            st.iframe(viewer_html, height=680)
             st.caption("Viewer colors are Relative analytical load; they are not stress contours or transient FEA.")
         with metric_column:
             _render_selected_metrics(document)

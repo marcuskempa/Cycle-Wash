@@ -367,9 +367,9 @@ def _symbol_table(symbols: Iterable[object], styles: dict[str, ParagraphStyle]) 
     for symbol in symbols:
         rows.append(
             [
-                getattr(symbol, "symbol"),
+                Paragraph(getattr(symbol, "symbol"), styles["small"]),
                 Paragraph(getattr(symbol, "meaning"), styles["small"]),
-                getattr(symbol, "unit"),
+                Paragraph(getattr(symbol, "unit"), styles["small"]),
                 Paragraph(getattr(symbol, "source"), styles["small"]),
             ]
         )
