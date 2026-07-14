@@ -87,16 +87,25 @@
       </div>
     </div>
     <div class="metrics" id="scenario-metrics" aria-live="polite"></div>
+    <p id="viewer-status" role="status" aria-live="polite" hidden></p>
   </section>
   @@REPORT_HTML@@
   <script id="cyclewash-report-data" type="application/json">@@PAYLOAD_JSON@@</script>
   <script>
 @@THREE_BUNDLE@@
+window.CycleWashThree = CycleWashThree;
   </script>
   <script>
   (function () {
     "use strict";
+    const viewerStatus = document.getElementById("viewer-status");
+    try {
     const payload = JSON.parse(document.getElementById("cyclewash-report-data").textContent);
+    const runtime = window.CycleWashThree;
+    if (!runtime || runtime.THREE_VERSION !== "0.185.1" || !runtime.THREE) {
+      throw new Error("The embedded CycleWash Three.js runtime is missing or has an unexpected version.");
+    }
+    const THREE = runtime.THREE;
     const canvas = document.getElementById("scene");
     const metrics = document.getElementById("scenario-metrics");
     const phaseSlider = document.getElementById("phase-slider");
@@ -118,6 +127,9 @@
     const camera = new THREE.PerspectiveCamera(38, 1, 0.01, 20);
     camera.position.set(1.15, 0.78, 1.25);
     camera.lookAt(0, 0, 0);
+    const controls = new runtime.OrbitControls(camera, canvas);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.08;
     scene.add(new THREE.HemisphereLight(0xcbd5e1, 0x172033, 2.2));
     const key = new THREE.DirectionalLight(0xffffff, 2.1); key.position.set(1.2, 1.3, 1.0); scene.add(key);
     const grid = new THREE.GridHelper(2.1, 16, 0x36516f, 0x1e293b); grid.rotation.z = Math.PI / 2; scene.add(grid);
@@ -143,7 +155,9 @@
     const water = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.16, 0.34), new THREE.MeshStandardMaterial({ color: 0x0ea5e9, transparent: true, opacity: 0.48, roughness: 0.25, metalness: 0.1 }));
     scene.add(water);
     const laundry = new THREE.Mesh(new THREE.SphereGeometry(0.035, 20, 12), new THREE.MeshStandardMaterial({ color: 0xf97316, roughness: 0.8 })); rotor.add(laundry);
-    const arrow = new THREE.ArrowHelper(new THREE.Vector3(0, 1, 0), new THREE.Vector3(), 0.15, 0xf43f5e, 0.035, 0.02); rotor.add(arrow);
+    const radialDirection = new THREE.Vector3(0, 1, 0);
+    const arrow = new THREE.ArrowHelper(radialDirection, new THREE.Vector3(), 0.15, 0xf43f5e, 0.035, 0.02); rotor.add(arrow);
+    arrow.setDirection(radialDirection);
 
     function metric(label, value) { return "<div class=\"metric\"><strong>" + label + "</strong><span>" + value + "</span></div>"; }
     function updateMetrics() {
@@ -161,7 +175,6 @@
       laundry.position.set(0, eccentricity, 0);
       const forceScale = Math.min(0.26, 0.06 + selected.imbalance_force_n / 800);
       arrow.position.copy(laundry.position);
-      arrow.setDirection(new THREE.Vector3(0, Math.cos(radians), Math.sin(radians)).normalize());
       arrow.setLength(forceScale, 0.035, 0.02);
       water.scale.y = Math.max(0.28, selected.fill_fraction * 1.6);
       water.position.copy(origin).add(new THREE.Vector3(0, -selected.drum_radius_m * (0.52 - selected.fill_fraction / 3), 0));
@@ -170,13 +183,55 @@
       phaseOutput.value = phase.toFixed(0) + " deg"; phaseOutput.textContent = phaseOutput.value;
     }
     function resize() { const rect = canvas.getBoundingClientRect(); renderer.setSize(rect.width, rect.height, false); camera.aspect = rect.width / rect.height; camera.updateProjectionMatrix(); }
+    function setPlaying(nextPlaying) { playing = Boolean(nextPlaying); playPause.textContent = playing ? "Pause" : "Play"; }
     scenarioButtons.forEach(function (button) { button.addEventListener("click", function () { selectScenario(button.dataset.scenario); }); });
-    playPause.addEventListener("click", function () { playing = !playing; playPause.textContent = playing ? "Pause" : "Play"; });
-    phaseSlider.addEventListener("input", function () { playing = false; playPause.textContent = "Play"; phase = Number(phaseSlider.value); updateScene(); });
+    playPause.addEventListener("click", function () { setPlaying(!playing); });
+    phaseSlider.addEventListener("input", function () { setPlaying(false); phase = Number(phaseSlider.value); updateScene(); });
     speedSelect.addEventListener("change", function () { speed = Number(speedSelect.value); });
     canvas.addEventListener("keydown", function (event) { if (event.key === " ") { event.preventDefault(); playPause.click(); } });
-    function frame(time) { if (previousTime) { const elapsed = Math.min(0.1, (time - previousTime) / 1000); if (playing) { phase = (phase + elapsed * selected.rpm * 6 * speed) % 360; phaseSlider.value = phase.toFixed(0); updateScene(); } } previousTime = time; resize(); renderer.render(scene, camera); requestAnimationFrame(frame); }
-    selectScenario(selectedName); requestAnimationFrame(frame);
+    function frame(time) { if (previousTime) { const elapsed = Math.min(0.1, (time - previousTime) / 1000); if (playing) { phase = (phase + elapsed * selected.rpm * 6 * speed) % 360; phaseSlider.value = phase.toFixed(0); updateScene(); } } previousTime = time; resize(); controls.update(); renderer.render(scene, camera); requestAnimationFrame(frame); }
+
+    function smokeAssert(condition, message) { if (!condition) throw new Error("Viewer smoke check failed: " + message); }
+    function runRuntimeSmokeTest() {
+      const original = { selectedName: selectedName, playing: playing, phase: phase, speed: speed };
+      const heavyButton = scenarioButtons.find(function (button) { return button.dataset.scenario === "Heavy"; });
+      smokeAssert(Boolean(heavyButton), "Heavy scenario control is missing");
+      heavyButton.click();
+      smokeAssert(selectedName === "Heavy", "scenario control did not select Heavy");
+      playPause.click();
+      smokeAssert(playing !== original.playing, "play/pause control did not toggle playback");
+      phaseSlider.value = "137";
+      phaseSlider.dispatchEvent(new Event("input"));
+      smokeAssert(phase === 137 && !playing, "phase control did not scrub and pause");
+      speedSelect.value = "2";
+      speedSelect.dispatchEvent(new Event("change"));
+      smokeAssert(speed === 2, "speed control did not select 2x");
+
+      selectScenario(original.selectedName);
+      phase = original.phase;
+      phaseSlider.value = String(original.phase);
+      speed = original.speed;
+      speedSelect.value = String(original.speed);
+      setPlaying(original.playing);
+      updateScene();
+      return true;
+    }
+
+    window.CycleWashTechnicalViewer = Object.freeze({
+      getState: function () { return { selectedName: selectedName, playing: playing, phase: phase, speed: speed, arrowLocalDirection: [0, 1, 0] }; },
+      runRuntimeSmokeTest: runRuntimeSmokeTest
+    });
+    selectScenario(selectedName);
+    runRuntimeSmokeTest();
+    document.body.dataset.viewerSmoke = "passed";
+    viewerStatus.textContent = "Viewer ready";
+    requestAnimationFrame(frame);
+    } catch (error) {
+      console.error(error);
+      document.body.dataset.viewerSmoke = "failed";
+      viewerStatus.hidden = false;
+      viewerStatus.textContent = "Viewer startup error: " + (error.message || error);
+    }
   })();
   </script>
 </body>

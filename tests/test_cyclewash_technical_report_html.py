@@ -8,6 +8,9 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 
+import numpy as np
+
+from cyclewash_structural_visualizer import AssemblyPart
 from cyclewash_technical_report import build_report_document
 
 
@@ -19,7 +22,8 @@ class CycleWashTechnicalReportHtmlTests(unittest.TestCase):
         from cyclewash_technical_report_html import build_offline_report_html
 
         self.document = build_report_document("Normal", PROJECT_ROOT / "fea_results")
-        self.html = build_offline_report_html(self.document, PROJECT_ROOT).decode("utf-8")
+        self.html_bytes = build_offline_report_html(self.document, PROJECT_ROOT)
+        self.html = self.html_bytes.decode("utf-8")
 
     def test_export_embeds_report_content_three_bundle_and_required_controls(self) -> None:
         self.assertTrue(self.html.startswith("<!doctype html>"))
@@ -44,11 +48,51 @@ class CycleWashTechnicalReportHtmlTests(unittest.TestCase):
     def test_export_is_offline_safe_and_deterministic(self) -> None:
         from cyclewash_technical_report_html import build_offline_report_html
 
-        forbidden = ("http://", "https://", "<script src=", "<link href=", "import(")
-        self.assertTrue(all(token not in self.html.lower() for token in forbidden))
+        bundle = (PROJECT_ROOT / "assets" / "cyclewash-three-bundle.min.js").read_bytes()
+        html_without_bundle = self.html_bytes.replace(bundle, b"", 1).lower()
+        forbidden = (b"http://", b"https://", b"<script src=", b"<link href=", b"import(")
+        self.assertTrue(all(token not in html_without_bundle for token in forbidden))
         self.assertEqual(
-            self.html.encode("utf-8"),
+            self.html_bytes,
             build_offline_report_html(self.document, PROJECT_ROOT),
+        )
+
+    def test_pinned_bundle_is_unchanged_and_runtime_uses_its_actual_contract(self) -> None:
+        bundle = (PROJECT_ROOT / "assets" / "cyclewash-three-bundle.min.js").read_bytes()
+
+        self.assertIn(bundle, self.html_bytes)
+        self.assertIn(b"http://www.w3.org/1999/xhtml", self.html_bytes)
+        self.assertIn("window.CycleWashThree = CycleWashThree;", self.html)
+        self.assertIn("const runtime = window.CycleWashThree;", self.html)
+        self.assertIn("const THREE = runtime.THREE;", self.html)
+        self.assertLess(
+            self.html.index("const THREE = runtime.THREE;"),
+            self.html.index("new THREE.WebGLRenderer"),
+        )
+
+    def test_runtime_smoke_contract_exercises_controls_and_reports_startup_errors(self) -> None:
+        expected_runtime_contract = (
+            "function runRuntimeSmokeTest()",
+            'button.dataset.scenario === "Heavy"',
+            "heavyButton.click();",
+            'phaseSlider.dispatchEvent(new Event("input"));',
+            'speedSelect.dispatchEvent(new Event("change"));',
+            'document.body.dataset.viewerSmoke = "passed";',
+            "console.error(error);",
+            'document.body.dataset.viewerSmoke = "failed";',
+        )
+
+        for statement in expected_runtime_contract:
+            self.assertIn(statement, self.html)
+
+    def test_imbalance_arrow_uses_one_rotating_radial_reference_frame(self) -> None:
+        self.assertIn(
+            "const radialDirection = new THREE.Vector3(0, 1, 0);", self.html
+        )
+        self.assertIn("arrow.setDirection(radialDirection);", self.html)
+        self.assertNotIn(
+            "arrow.setDirection(new THREE.Vector3(0, Math.cos(radians), Math.sin(radians))",
+            self.html,
         )
 
     def test_geometry_is_embedded_once_and_shared_across_scenarios(self) -> None:
@@ -101,6 +145,36 @@ class CycleWashTechnicalReportHtmlTests(unittest.TestCase):
 
         self.assertNotIn("</script><script>window.evil", html)
         self.assertIn("\\u003c/script\\u003e", html)
+
+    def test_geometry_budget_rejects_excessive_triangles_and_typed_array_bytes(self) -> None:
+        from cyclewash_technical_report_html import (
+            MAX_GEOMETRY_BYTES,
+            MAX_TOTAL_TRIANGLES,
+            _validate_geometry_budget,
+        )
+
+        vertices = np.asarray(
+            [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+            dtype=float,
+        )
+        too_many_faces = AssemblyPart(
+            name="oversized triangles",
+            local_vertices=vertices,
+            faces=np.zeros((MAX_TOTAL_TRIANGLES + 1, 3), dtype=np.int64),
+        )
+        with self.assertRaisesRegex(ValueError, "triangle budget"):
+            _validate_geometry_budget((too_many_faces,))
+
+        oversized_vertices = np.zeros(
+            ((MAX_GEOMETRY_BYTES // (3 * 4)) + 1, 3), dtype=float
+        )
+        too_many_bytes = AssemblyPart(
+            name="oversized typed arrays",
+            local_vertices=oversized_vertices,
+            faces=np.asarray([[0, 0, 0]], dtype=np.int64),
+        )
+        with self.assertRaisesRegex(ValueError, "geometry byte budget"):
+            _validate_geometry_budget((too_many_bytes,))
 
 
 if __name__ == "__main__":

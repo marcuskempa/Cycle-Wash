@@ -19,6 +19,9 @@ from cyclewash_technical_report import FormulaDefinition, ReportDocument
 MODULE_DIRECTORY: Final[Path] = Path(__file__).resolve().parent
 TEMPLATE_PATH: Final[Path] = MODULE_DIRECTORY / "cyclewash_technical_report_template.html"
 THREE_BUNDLE_PATH: Final[Path] = MODULE_DIRECTORY / "assets" / "cyclewash-three-bundle.min.js"
+MAX_TOTAL_TRIANGLES: Final[int] = 150_000
+MAX_GEOMETRY_BYTES: Final[int] = 4 * 1024 * 1024
+MAX_OFFLINE_HTML_BYTES: Final[int] = 8 * 1024 * 1024
 
 _REQUIRED_PARTS: Final[tuple[tuple[str, str, str, str], ...]] = (
     ("enclosure", "enclosure.stl", "#9ca3af", "casing"),
@@ -47,7 +50,13 @@ def build_offline_report_html(document: ReportDocument, stl_root: str | Path) ->
         three_bundle=_offline_three_bundle(),
         selected_name=document.selected_report.scenario.name,
     )
-    return rendered.encode("utf-8")
+    encoded = rendered.encode("utf-8")
+    if len(encoded) > MAX_OFFLINE_HTML_BYTES:
+        raise ValueError(
+            f"offline HTML size {len(encoded):,} bytes exceeds the "
+            f"{MAX_OFFLINE_HTML_BYTES:,}-byte output budget"
+        )
+    return encoded
 
 
 def build_scenario_viewer_html(
@@ -98,6 +107,7 @@ def _load_normalized_parts(stl_root: Path) -> tuple[AssemblyPart, ...]:
 
 
 def _build_payload(document: ReportDocument, parts: tuple[AssemblyPart, ...]) -> dict[str, Any]:
+    geometry_summary = _validate_geometry_budget(parts)
     geometry_parts = [_part_payload(part) for part in parts]
     shaft = next(part for part in parts if part.name.lower() == "shaft")
     shaft_vertices = np.asarray(shaft.vertices, dtype=float)
@@ -119,8 +129,33 @@ def _build_payload(document: ReportDocument, parts: tuple[AssemblyPart, ...]) ->
             "rotation_axis": [1.0, 0.0, 0.0],
             "rotation_origin": [float(value) for value in rotation_origin],
             "source": "Normalized authoritative local STL geometry, embedded once.",
+            "summary": geometry_summary,
         },
         "scenarios": scenarios,
+    }
+
+
+def _validate_geometry_budget(parts: tuple[AssemblyPart, ...]) -> dict[str, int]:
+    triangle_count = sum(part.triangle_count for part in parts)
+    geometry_bytes = sum(
+        int(np.asarray(part.vertices).size + np.asarray(part.faces).size) * 4
+        for part in parts
+    )
+    if triangle_count > MAX_TOTAL_TRIANGLES:
+        raise ValueError(
+            f"STL assembly has {triangle_count:,} triangles and exceeds the "
+            f"{MAX_TOTAL_TRIANGLES:,}-triangle budget"
+        )
+    if geometry_bytes > MAX_GEOMETRY_BYTES:
+        raise ValueError(
+            f"STL assembly needs {geometry_bytes:,} typed-array bytes and exceeds the "
+            f"{MAX_GEOMETRY_BYTES:,}-byte geometry byte budget"
+        )
+    return {
+        "triangle_count": triangle_count,
+        "typed_array_bytes": geometry_bytes,
+        "triangle_budget": MAX_TOTAL_TRIANGLES,
+        "typed_array_byte_budget": MAX_GEOMETRY_BYTES,
     }
 
 
@@ -307,15 +342,10 @@ def _json_value(value: Any) -> Any:
 
 def _offline_three_bundle() -> str:
     try:
-        bundle = THREE_BUNDLE_PATH.read_text(encoding="utf-8")
-    except OSError as error:
+        bundle = THREE_BUNDLE_PATH.read_bytes().decode("utf-8")
+    except (OSError, UnicodeDecodeError) as error:
         raise RuntimeError(f"unable to read pinned Three.js bundle: {THREE_BUNDLE_PATH}") from error
-    # The bundle includes documentation URLs and loader code not used by this report.
-    return (
-        bundle.replace("https://", "offline-url://")
-        .replace("http://", "offline-url://")
-        .replace("fetch(", "window['fetch'](")
-    )
+    return bundle
 
 
 def _normalized_name(name: str) -> str:
