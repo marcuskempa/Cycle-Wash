@@ -43,8 +43,15 @@ only reads that exact cache and never runs an FEA solver.
 
 ## Streamlit Community Cloud
 
-Deploy with the repository root as the app path and this command:
+Use these deployment settings:
 
-```text
-streamlit run Gear_Builder.py
-```
+- Repository: `marcuskempa/Cycle-Wash`
+- Branch: `main`
+- Main file path: `Gear_Builder.py`
+
+Community Cloud installs `requirements.txt` and automatically redeploys after a
+new commit reaches `main`. The optional packages in `requirements_fea.txt` are
+for local solved Stage 1 FEA only. When a hosted input combination has no exact
+cached package, the Structural Load Visualizer shows a clearly labeled
+`Analytical preview` and explains that a solved package must be generated
+locally.
