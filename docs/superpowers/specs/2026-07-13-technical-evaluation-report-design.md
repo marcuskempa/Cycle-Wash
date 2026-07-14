@@ -91,6 +91,149 @@ loads without claiming transient CFD or dynamic FEA fidelity.
 Both exporters consume this same document. They may format values differently but
 must not recalculate engineering results independently.
 
+## Formula Presentation And Definitions
+
+The Streamlit page, PDF, and HTML must be educational engineering documents, not
+result-only dashboards. Every calculation section contains all four elements:
+
+1. A clean LaTeX-style display equation.
+2. The evaluated equation with current numerical values and units substituted.
+3. A symbol table defining every variable, its physical meaning, SI unit, and
+   source (fixed scenario, shared geometry, material property, or calculated value).
+4. A plain-language paragraph explaining what the equation models, why it is used,
+   and how to interpret the result for CycleWash.
+
+The Streamlit page uses `st.latex()` for display equations. The offline HTML uses
+self-contained semantic HTML/CSS equation markup with Greek symbols, fractions,
+subscripts, superscripts, and square roots; it must not depend on a MathJax or
+KaTeX content-delivery network. The PDF uses embedded Unicode-capable fonts and
+ReportLab equation blocks that visually match the HTML as closely as practical.
+
+All internal calculations use SI base units. Display conversions are explicit and
+never replace the canonical SI values. Each table identifies units in its headers.
+The report includes a compact units note covering radians, revolutions per minute,
+newtons, newton-metres, pascals, megapascals, cubic metres, litres, kilograms, and
+dimensionless factors.
+
+### Required Formula Catalogue
+
+The report explains and evaluates, at minimum, the following relationships.
+
+#### Drivetrain Speed Ratio
+
+```text
+N_d = N_p (T_f / T_r)
+T_r,ideal = T_f (N_p / N_d,target)
+```
+
+Definitions: `N_d` drum speed (RPM), `N_p` pedal cadence (RPM), `T_f` front
+chainring tooth count (teeth), and `T_r` rear sprocket tooth count (teeth). Explain
+that the selected integer rear sprocket creates a practical speed that may differ
+slightly from the ideal target.
+
+#### Angular Speed And Drum-Edge Velocity
+
+```text
+omega = 2 pi N_d / 60
+v_edge = omega R
+```
+
+Definitions: `omega` angular speed (rad/s), `N_d` drum speed (RPM), `R` effective
+drum radius (m), and `v_edge` drum-edge tangential velocity (m/s). Explain why edge
+velocity is used as a simple wash-agitation indicator rather than a CFD prediction.
+
+#### Human Power, Torque, And Chain Force
+
+```text
+T_nom = P / omega
+T_design = K_t T_nom
+F_chain = T_design / r_g
+```
+
+Definitions: `P` human mechanical power (W), `T_nom` nominal torque (N*m), `K_t`
+transient design factor (dimensionless), `T_design` design torque (N*m), `F_chain`
+chain force (N), and `r_g` rear sprocket pitch radius (m). Explain that the transient
+factor approximates startup, pedal variation, and load changes.
+
+#### Water Volume, Mass, And Weight
+
+```text
+V_drum = pi R^2 L
+V_retained = V_drum f_fill (1 - r_relief)
+m_water = rho V_retained
+W_water = m_water g
+```
+
+Definitions: `L` drum depth (m), `f_fill` water-fill fraction (dimensionless),
+`r_relief` perforation relief fraction (dimensionless), `rho` water density (kg/m^3),
+`m_water` retained water mass (kg), `g` gravitational acceleration (m/s^2), and
+`W_water` retained water weight (N). Explain that retained volume is a reduced-order
+estimate for a perforated rotating drum, not a sealed-cylinder volume.
+
+#### Hydrostatic And Centrifugal Water Pressure
+
+```text
+p_h = rho g h K_s
+p_c = (rho omega^2 R^2 f_fill (1 - r_relief)) / 2
+p_design = p_h + p_c
+```
+
+Definitions: `p_h` amplified hydrostatic pressure (Pa), `h` maximum water depth
+(m), `K_s` slosh amplification (dimensionless), `p_c` centrifugal pressure estimate
+(Pa), and `p_design` combined design pressure (Pa). Explain the physical distinction
+between gravity-driven head and rotation-driven radial pressure.
+
+#### Unbalanced Wet-Laundry Load
+
+```text
+F_u = m_u e omega^2
+F_y(theta) = F_u cos(theta)
+F_z(theta) = F_u sin(theta)
+theta(t) = omega t + theta_0
+```
+
+Definitions: `F_u` imbalance-force magnitude (N), `m_u` effective unbalanced wet
+laundry mass (kg), `e` centre-of-mass eccentricity (m), `theta` drum phase angle
+(rad), `t` time (s), and `theta_0` initial phase (rad). Explain that the force vector
+rotates with the drum and produces cyclic bearing and shaft loading.
+
+#### Shaft Bending And Torsion
+
+```text
+M_chain = F_chain e_chain
+M_reaction = F_reaction e_reaction
+M_u = F_u e_reaction
+M_total = M_chain + M_reaction + M_u
+sigma_b = 32 M_total / (pi d^3)
+tau_t = 16 T_design / (pi d^3)
+```
+
+Definitions: `M_chain`, `M_reaction`, and `M_u` are bending-moment contributions
+(N*m); `e_chain` and `e_reaction` are load-station lever arms (m); `d` is solid-shaft
+diameter (m); `sigma_b` is outer-fibre bending stress (Pa); and `tau_t` is maximum
+torsional shear stress (Pa). Explain why the solid circular-shaft equations are an
+appropriate transparent hand-calculation cross-check.
+
+#### Combined Stress And Factor Of Safety
+
+```text
+sigma_vm = sqrt(sigma_b^2 + 3 tau_t^2)
+FoS_y = S_y / sigma_vm
+```
+
+Definitions: `sigma_vm` von Mises equivalent stress (Pa), `S_y` material yield
+strength (Pa), and `FoS_y` yield factor of safety (dimensionless). Explain that a
+factor greater than one indicates the analytical stress remains below nominal yield,
+while a school-project design should still discuss uncertainty, fatigue, joints,
+bearings, manufacturing defects, and omitted dynamic effects.
+
+#### FEA Result Definitions
+
+When an exact cached FEA package is included, define von Mises stress (Pa or MPa),
+displacement magnitude (m or mm), nodal/element maxima, mesh level, and minimum
+factor of safety. Explain that the Stage 1 model is linear-static with reduced-order
+loads and is not transient structural analysis or CFD.
+
 ## Offline HTML Export
 
 Generate one self-contained `.html` file. Embed CSS, JavaScript, the pinned local
@@ -106,6 +249,10 @@ static assembly/load illustrations, FEA provenance, assumptions, limitations, an
 conclusion. No student/course cover fields are included because the PDF/HTML is a
 technical evaluation supplement to an existing presentation.
 
+The PDF must keep equations, evaluated substitutions, symbol definitions, and their
+explanatory paragraphs together where practical. It must repeat table headers across
+page breaks and avoid splitting a formula from its variable definitions.
+
 ## Verification
 
 - Unit-test scenario constants and unbalanced-force equations.
@@ -114,5 +261,7 @@ technical evaluation supplement to an existing presentation.
 - Test HTML contains all scenarios, playback controls, embedded geometry, and no
   external URLs.
 - Test PDF header, page count, and key report text.
+- Test that every required formula has variable definitions and units in the shared
+  report document and both exports.
 - Run Streamlit AppTest on all three pages.
 - Inspect the third page at desktop and mobile widths for overlap and readability.
