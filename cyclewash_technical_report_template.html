@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
   <title>CycleWash Technical Evaluation</title>
   <style>
     :root { color-scheme: dark light; font-family: Arial, Helvetica, sans-serif; background: #e5e7eb; color: #18212f; }
@@ -92,6 +93,115 @@
   @@REPORT_HTML@@
   <script id="cyclewash-report-data" type="application/json">@@PAYLOAD_JSON@@</script>
   <script>
+  (function () {
+    "use strict";
+    const body = document.body;
+    const viewerStatus = document.getElementById("viewer-status");
+    const state = {
+      controls: null,
+      failures: [],
+      frames: 0,
+      network: [],
+      testMode: new URLSearchParams(window.location.search).has("cyclewash-smoke")
+    };
+
+    function describe(value) {
+      if (value instanceof Error) return value.stack || value.message;
+      return String(value);
+    }
+    function updateCounts() {
+      body.dataset.viewerSmokeFailures = String(state.failures.length);
+      body.dataset.viewerSmokeNetwork = String(state.network.length);
+    }
+    function fail(kind, detail) {
+      state.failures.push(kind + ": " + describe(detail));
+      updateCounts();
+      body.dataset.viewerSmoke = "failed";
+      viewerStatus.hidden = false;
+      viewerStatus.textContent = "Viewer runtime error: " + state.failures[state.failures.length - 1];
+    }
+    function isNetworkUrl(value) {
+      try {
+        const url = new URL(String(value), window.location.href);
+        return url.protocol === "http:" || url.protocol === "https:";
+      } catch (error) {
+        return false;
+      }
+    }
+    function recordNetwork(kind, value) {
+      if (!isNetworkUrl(value)) return;
+      state.network.push(kind + ": " + String(value));
+      updateCounts();
+      body.dataset.viewerSmoke = "failed";
+      viewerStatus.hidden = false;
+      viewerStatus.textContent = "Viewer attempted an outbound resource: " + String(value);
+    }
+    function maybePass() {
+      if (state.frames < 2 || !state.controls) return;
+      if (state.failures.length || state.network.length) {
+        body.dataset.viewerSmoke = "failed";
+        return;
+      }
+      body.dataset.viewerSmoke = "passed";
+      body.dataset.viewerSmokeFrames = String(state.frames);
+      body.dataset.viewerSmokeScenario = state.controls.scenario;
+      body.dataset.viewerSmokePlaying = String(state.controls.playing);
+      body.dataset.viewerSmokePhase = String(state.controls.phase);
+      body.dataset.viewerSmokeSpeed = String(state.controls.speed);
+      viewerStatus.textContent = "Viewer ready";
+    }
+    function recordControls(controls) {
+      state.controls = controls;
+      maybePass();
+    }
+    function recordFrame() {
+      state.frames = Math.min(2, state.frames + 1);
+      maybePass();
+    }
+    function shouldStop() {
+      return state.testMode && (body.dataset.viewerSmoke === "passed" || body.dataset.viewerSmoke === "failed");
+    }
+
+    updateCounts();
+    body.dataset.viewerSmokeFrames = "0";
+    window.addEventListener("error", function (event) { fail("error", event.error || event.message); });
+    window.addEventListener("unhandledrejection", function (event) { fail("unhandledrejection", event.reason); });
+
+    const originalConsoleError = console.error.bind(console);
+    console.error = function () {
+      fail("console.error", Array.from(arguments).map(describe).join(" "));
+      originalConsoleError.apply(console, arguments);
+    };
+    if (window.fetch) {
+      const originalFetch = window.fetch;
+      window.fetch = function (input) {
+        recordNetwork("fetch", typeof input === "string" ? input : input && input.url);
+        return originalFetch.apply(this, arguments);
+      };
+    }
+    if (window.XMLHttpRequest) {
+      const originalOpen = window.XMLHttpRequest.prototype.open;
+      window.XMLHttpRequest.prototype.open = function (method, url) {
+        recordNetwork("xhr", url);
+        return originalOpen.apply(this, arguments);
+      };
+    }
+    if (window.PerformanceObserver) {
+      const resourceObserver = new PerformanceObserver(function (records) {
+        records.getEntries().forEach(function (entry) { recordNetwork("resource", entry.name); });
+      });
+      resourceObserver.observe({ type: "resource", buffered: true });
+    }
+
+    window.CycleWashRuntimeProbe = Object.freeze({
+      fail: fail,
+      recordControls: recordControls,
+      recordFrame: recordFrame,
+      shouldStop: shouldStop
+    });
+  })();
+  </script>
+  <script>
 @@THREE_BUNDLE@@
 window.CycleWashThree = CycleWashThree;
   </script>
@@ -99,6 +209,7 @@ window.CycleWashThree = CycleWashThree;
   (function () {
     "use strict";
     const viewerStatus = document.getElementById("viewer-status");
+    const smokeProbe = window.CycleWashRuntimeProbe;
     try {
     const payload = JSON.parse(document.getElementById("cyclewash-report-data").textContent);
     const runtime = window.CycleWashThree;
@@ -189,7 +300,15 @@ window.CycleWashThree = CycleWashThree;
     phaseSlider.addEventListener("input", function () { setPlaying(false); phase = Number(phaseSlider.value); updateScene(); });
     speedSelect.addEventListener("change", function () { speed = Number(speedSelect.value); });
     canvas.addEventListener("keydown", function (event) { if (event.key === " ") { event.preventDefault(); playPause.click(); } });
-    function frame(time) { if (previousTime) { const elapsed = Math.min(0.1, (time - previousTime) / 1000); if (playing) { phase = (phase + elapsed * selected.rpm * 6 * speed) % 360; phaseSlider.value = phase.toFixed(0); updateScene(); } } previousTime = time; resize(); controls.update(); renderer.render(scene, camera); requestAnimationFrame(frame); }
+    function frame(time) {
+      if (previousTime) { const elapsed = Math.min(0.1, (time - previousTime) / 1000); if (playing) { phase = (phase + elapsed * selected.rpm * 6 * speed) % 360; phaseSlider.value = phase.toFixed(0); updateScene(); } }
+      previousTime = time;
+      resize();
+      controls.update();
+      renderer.render(scene, camera);
+      smokeProbe.recordFrame();
+      if (!smokeProbe.shouldStop()) requestAnimationFrame(frame);
+    }
 
     function smokeAssert(condition, message) { if (!condition) throw new Error("Viewer smoke check failed: " + message); }
     function runRuntimeSmokeTest() {
@@ -200,12 +319,13 @@ window.CycleWashThree = CycleWashThree;
       smokeAssert(selectedName === "Heavy", "scenario control did not select Heavy");
       playPause.click();
       smokeAssert(playing !== original.playing, "play/pause control did not toggle playback");
-      phaseSlider.value = "137";
+      phaseSlider.value = "123";
       phaseSlider.dispatchEvent(new Event("input"));
-      smokeAssert(phase === 137 && !playing, "phase control did not scrub and pause");
+      smokeAssert(phase === 123 && !playing, "phase control did not scrub and pause");
       speedSelect.value = "2";
       speedSelect.dispatchEvent(new Event("change"));
       smokeAssert(speed === 2, "speed control did not select 2x");
+      smokeProbe.recordControls({ scenario: selectedName, playing: playing, phase: phase, speed: speed });
 
       selectScenario(original.selectedName);
       phase = original.phase;
@@ -223,8 +343,7 @@ window.CycleWashThree = CycleWashThree;
     });
     selectScenario(selectedName);
     runRuntimeSmokeTest();
-    document.body.dataset.viewerSmoke = "passed";
-    viewerStatus.textContent = "Viewer ready";
+    viewerStatus.textContent = "Viewer starting";
     requestAnimationFrame(frame);
     } catch (error) {
       console.error(error);

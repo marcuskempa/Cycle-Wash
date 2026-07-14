@@ -3,9 +3,15 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from functools import partial
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import json
+import os
 from pathlib import Path
+import shutil
+import subprocess
 from tempfile import TemporaryDirectory
+import threading
 import unittest
 
 import numpy as np
@@ -15,6 +21,42 @@ from cyclewash_technical_report import build_report_document
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _find_supported_browser() -> Path | None:
+    candidates = [
+        shutil.which(command)
+        for command in ("chrome.exe", "chrome", "msedge.exe", "msedge")
+    ]
+    roots = tuple(
+        root
+        for root in (
+            os.environ.get("PROGRAMFILES"),
+            os.environ.get("PROGRAMFILES(X86)"),
+            os.environ.get("LOCALAPPDATA"),
+        )
+        if root
+    )
+    for relative in (
+        "Google/Chrome/Application/chrome.exe",
+        "Microsoft/Edge/Application/msedge.exe",
+    ):
+        candidates.extend(str(Path(root) / relative) for root in roots)
+    for candidate in candidates:
+        if candidate and Path(candidate).is_file():
+            return Path(candidate)
+    return None
+
+
+class _RecordingHttpHandler(SimpleHTTPRequestHandler):
+    request_paths: list[str] = []
+
+    def do_GET(self) -> None:
+        self.request_paths.append(self.path)
+        super().do_GET()
+
+    def log_message(self, format: str, *args: object) -> None:
+        pass
 
 
 class CycleWashTechnicalReportHtmlTests(unittest.TestCase):
@@ -77,13 +119,89 @@ class CycleWashTechnicalReportHtmlTests(unittest.TestCase):
             "heavyButton.click();",
             'phaseSlider.dispatchEvent(new Event("input"));',
             'speedSelect.dispatchEvent(new Event("change"));',
-            'document.body.dataset.viewerSmoke = "passed";',
+            'body.dataset.viewerSmoke = "passed";',
+            "smokeProbe.recordFrame();",
             "console.error(error);",
-            'document.body.dataset.viewerSmoke = "failed";',
+            'body.dataset.viewerSmoke = "failed";',
+            'window.addEventListener("error"',
+            'window.addEventListener("unhandledrejection"',
+            "window.fetch = function",
+            "window.XMLHttpRequest.prototype.open = function",
+            "new PerformanceObserver",
         )
 
         for statement in expected_runtime_contract:
             self.assertIn(statement, self.html)
+        self.assertLess(
+            self.html.index("window.CycleWashRuntimeProbe = Object.freeze"),
+            self.html.index("window.CycleWashThree = CycleWashThree;"),
+        )
+
+    def test_generated_page_executes_two_frames_and_makes_no_network_requests(self) -> None:
+        browser = _find_supported_browser()
+        if browser is None:
+            self.skipTest(
+                "runtime smoke requires Chrome or Edge in PATH or a common Windows install path"
+            )
+
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            (root / "report.html").write_bytes(self.html_bytes)
+            _RecordingHttpHandler.request_paths = []
+            handler = partial(_RecordingHttpHandler, directory=str(root))
+            server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+            server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+            server_thread.start()
+            port = server.server_address[1]
+            try:
+                completed = subprocess.run(
+                    [
+                        str(browser),
+                        "--headless=new",
+                        "--disable-background-networking",
+                        "--disable-component-update",
+                        "--disable-default-apps",
+                        "--disable-extensions",
+                        "--disable-gpu-sandbox",
+                        "--disable-sync",
+                        "--no-default-browser-check",
+                        "--no-first-run",
+                        "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1",
+                        "--run-all-compositor-stages-before-draw",
+                        "--window-size=1280,900",
+                        "--virtual-time-budget=5000",
+                        f"--user-data-dir={root / 'browser-profile'}",
+                        "--dump-dom",
+                        f"http://127.0.0.1:{port}/report.html?cyclewash-smoke=1",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    timeout=30,
+                    check=False,
+                )
+            finally:
+                server.shutdown()
+                server.server_close()
+                server_thread.join(timeout=5)
+
+        self.assertEqual(0, completed.returncode, completed.stderr[-4000:])
+        expected_markers = (
+            'data-viewer-smoke="passed"',
+            'data-viewer-smoke-frames="2"',
+            'data-viewer-smoke-scenario="Heavy"',
+            'data-viewer-smoke-playing="false"',
+            'data-viewer-smoke-phase="123"',
+            'data-viewer-smoke-speed="2"',
+            'data-viewer-smoke-failures="0"',
+            'data-viewer-smoke-network="0"',
+        )
+        for marker in expected_markers:
+            self.assertIn(marker, completed.stdout)
+        self.assertEqual(
+            ["/report.html?cyclewash-smoke=1"], _RecordingHttpHandler.request_paths
+        )
 
     def test_imbalance_arrow_uses_one_rotating_radial_reference_frame(self) -> None:
         self.assertIn(
