@@ -16,7 +16,13 @@ except ImportError as error:
     ) from error
 
 from cyclewash_scenarios import SCENARIOS
-from cyclewash_technical_report import FormulaDefinition, ReportDocument, build_report_document
+from cyclewash_technical_report import (
+    LIMITATIONS_NOTE,
+    FormulaDefinition,
+    ReportDocument,
+    build_report_document,
+    core_formulas,
+)
 from cyclewash_technical_report_html import build_offline_report_html, build_scenario_viewer_html
 from cyclewash_technical_report_pdf import build_report_pdf
 
@@ -108,34 +114,19 @@ def _render_selected_metrics(document: ReportDocument) -> None:
         ("Combined shaft stress", _format_stress_mpa(results.von_mises_pa)),
         ("Factor of safety", f"{results.factor_of_safety:.2f}"),
     )
-    for label, value in metrics:
-        st.metric(label, value)
-    st.caption(f"Analytical result provenance: {report.provenance}.")
-    if report.fea_provenance is not None:
-        st.caption(f"Cached structural result provenance: {report.fea_provenance}.")
-
-
-def _render_presentation_equations(document: ReportDocument) -> None:
-    formulas_by_id = {formula.identifier: formula for formula in document.formulas}
-    for identifier in ("unbalanced_wet_laundry_load", "combined_stress_and_factor_of_safety"):
-        formula = formulas_by_id[identifier]
-        st.subheader(formula.title)
-        _render_latex(formula.latex)
-        st.caption(formula.evaluated)
+    columns = st.columns(len(metrics))
+    for column, (label, value) in zip(columns, metrics, strict=True):
+        column.metric(label, value)
 
 
 def _render_formula(formula: FormulaDefinition) -> None:
     st.subheader(formula.title)
     _render_latex(formula.latex)
-    st.markdown(f"**Evaluated substitution:** {formula.evaluated}")
-    _render_table(
-        ("Symbol", "Meaning", "SI unit", "Source"),
-        tuple(
-            (symbol.symbol, symbol.meaning, symbol.unit, symbol.source)
-            for symbol in formula.symbols
-        ),
+    st.caption(formula.evaluated)
+    definitions = "; ".join(
+        f"{symbol.symbol}: {symbol.meaning} [{symbol.unit}]" for symbol in formula.symbols
     )
-    st.write(formula.explanation)
+    st.caption(f"Variables: {definitions}")
 
 
 def _scenario_comparison_rows(document: ReportDocument) -> tuple[tuple[str, ...], ...]:
@@ -147,14 +138,13 @@ def _scenario_comparison_rows(document: ReportDocument) -> tuple[tuple[str, ...]
             f"{report.results.imbalance_force_n:.1f} N",
             _format_stress_mpa(report.results.von_mises_pa),
             f"{report.results.factor_of_safety:.2f}",
-            report.provenance,
         )
         for report in document.scenario_reports
     )
 
 
 def _render_comparison(document: ReportDocument) -> None:
-    st.subheader("Scenario Comparison")
+    st.header("Scenario Comparison")
     _render_table(
         (
             "Scenario",
@@ -163,75 +153,9 @@ def _render_comparison(document: ReportDocument) -> None:
             "Imbalance force",
             "Shaft stress",
             "FoS",
-            "Analytical provenance",
         ),
         _scenario_comparison_rows(document),
     )
-
-    st.subheader("Exact Cached FEA")
-    normal_report = next(
-        report for report in document.scenario_reports if report.scenario.name == "Normal"
-    )
-    if normal_report.fea_provenance is not None:
-        st.write(f"Normal availability: Available - {normal_report.fea_provenance}.")
-        for line in normal_report.fea_summary:
-            st.caption(line)
-    elif document.selected_report.scenario.name == "Normal":
-        st.write("Normal availability: No exact cached Stage 1 FEA package matches this request.")
-    else:
-        st.write(
-            "Normal availability: Select Normal to check and display its exact cached Stage 1 FEA package."
-        )
-
-
-def _render_technical_report(document: ReportDocument) -> None:
-    _render_comparison(document)
-
-    selected = document.selected_report
-    st.subheader("Selected Scenario")
-    st.write(
-        f"{selected.scenario.name} is a fixed operating point: "
-        f"{selected.scenario.speed_rpm:.0f} RPM, {selected.scenario.human_power_w:.0f} W human power, "
-        f"{selected.scenario.fill_fraction:.0%} water fill, {selected.scenario.laundry_mass_kg:.1f} kg wet laundry, "
-        f"and {selected.scenario.eccentricity_m * 1000.0:.0f} mm eccentricity."
-    )
-    st.caption(document.units_note)
-
-    st.subheader("Project Dimensions And Drivetrain")
-    _render_table(
-        ("Symbol", "Meaning", "SI unit", "Source"),
-        tuple(
-            (item.symbol, item.meaning, item.unit, item.source)
-            for item in document.project_dimensions
-        ),
-    )
-
-    st.header("Equations And Evaluated Results")
-    for formula in document.formulas:
-        _render_formula(formula)
-
-    st.header("Provenance")
-    st.write(
-        "Scenario stress, factor-of-safety, water, and imbalance values are analytical load estimates. "
-        "An exact cache match is reported separately and is never substituted for the analytical values."
-    )
-    for report in document.scenario_reports:
-        st.write(
-            f"{report.scenario.name}: analytical = {report.provenance}; "
-            f"cached FEA = {report.fea_provenance or 'No exact cached Stage 1 FEA package'}."
-        )
-    st.header("Assumptions")
-    for item in document.assumptions:
-        st.write(f"- {item}")
-
-    st.header("Limitations")
-    for item in document.limitations:
-        st.write(f"- {item}")
-
-    st.header("Interpretation")
-    st.write(document.engineering_interpretation)
-    st.header("Conclusion")
-    st.write(document.conclusion)
 
 
 def _render_downloads(selected_name: str, fea_root: str, stl_root: str) -> None:
@@ -290,19 +214,14 @@ def main() -> None:
         )
         return
 
-    presentation_tab, report_tab = st.tabs(("Presentation", "Technical Report"))
-    with presentation_tab:
-        viewer_column, metric_column = st.columns((1.7, 1.0), gap="large")
-        with viewer_column:
-            st.iframe(viewer_html, height=680)
-            st.caption("Viewer colors are Relative analytical load; they are not stress contours or transient FEA.")
-        with metric_column:
-            _render_selected_metrics(document)
-            _render_presentation_equations(document)
-        _render_downloads(selected_name, fea_root, stl_root)
-
-    with report_tab:
-        _render_technical_report(document)
+    _render_selected_metrics(document)
+    st.iframe(viewer_html, height=610)
+    st.header("Core Engineering Checks")
+    for formula in core_formulas(document):
+        _render_formula(formula)
+    _render_comparison(document)
+    st.info(LIMITATIONS_NOTE)
+    _render_downloads(selected_name, fea_root, stl_root)
 
 
 if __name__ == "__main__":
