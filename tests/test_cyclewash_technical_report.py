@@ -127,6 +127,9 @@ class CycleWashTechnicalReportTests(unittest.TestCase):
                     all(report.fea_package is None for report in document.scenario_reports)
                 )
                 self.assertTrue(
+                    all(report.fea_provenance is None for report in document.scenario_reports)
+                )
+                self.assertTrue(
                     all(not report.fea_components for report in document.scenario_reports)
                 )
                 self.assertTrue(
@@ -152,19 +155,58 @@ class CycleWashTechnicalReportTests(unittest.TestCase):
             "d871c798897415bf83a5c0f54d38848cec68e16c52f3eaa5b2246837ac4b7969",
             solver_request_hash(normal_inputs, CANONICAL_FEA_MESH_LEVELS),
         )
-        self.assertEqual("Solved Stage 1 FEA", document.selected_report.provenance)
+        self.assertEqual("Analytical load estimate", document.selected_report.provenance)
+        self.assertEqual("Solved Stage 1 FEA", document.selected_report.fea_provenance)
         self.assertIsNotNone(document.selected_report.fea_package)
+
+    def test_normal_exact_cache_keeps_analytical_and_fea_provenance_distinct(self) -> None:
+        project_root = Path(__file__).resolve().parents[1]
+
+        document = build_report_document("Normal", project_root / "fea_results")
+        report = document.selected_report
+
+        self.assertEqual("Analytical load estimate", report.provenance)
+        self.assertTrue(hasattr(report, "fea_provenance"))
+        self.assertEqual("Solved Stage 1 FEA", report.fea_provenance)
+        self.assertEqual(
+            ("Analytical load estimate",) * 3,
+            document.provenance,
+        )
+        self.assertIn("Analytical load estimate", document.engineering_interpretation)
+        self.assertIn("wet-laundry", document.engineering_interpretation)
+        self.assertIn(
+            "cached component metrics carry Solved Stage 1 FEA",
+            document.engineering_interpretation,
+        )
+        self.assertIn("Analytical load estimate", document.conclusion)
+        self.assertIn("supplemental shaft checks", document.conclusion)
+        self.assertIn(
+            "cached component metrics retain separate Solved Stage 1 FEA provenance",
+            document.conclusion,
+        )
+        analytical_formulas = tuple(
+            formula
+            for formula in document.formulas
+            if formula.identifier != "fea_result_definitions"
+        )
+        self.assertTrue(
+            all(
+                "Solved Stage 1 FEA" not in formula.evaluated
+                and "Solved Stage 1 FEA" not in formula.explanation
+                for formula in analytical_formulas
+            )
+        )
 
     def test_report_cache_reads_never_recover_or_mutate_backup_states(self) -> None:
         project_root = Path(__file__).resolve().parents[1]
         source_package = project_root / "fea_results" / EXACT_PACKAGE_HASH
         states = (
             ("valid destination", True, True, "Solved Stage 1 FEA"),
-            ("invalid destination", True, False, "Analytical load estimate"),
-            ("missing destination", False, False, "Analytical load estimate"),
+            ("invalid destination", True, False, None),
+            ("missing destination", False, False, None),
         )
 
-        for label, destination_exists, destination_is_valid, provenance in states:
+        for label, destination_exists, destination_is_valid, fea_provenance in states:
             with self.subTest(state=label), TemporaryDirectory() as temporary_directory:
                 root = Path(temporary_directory)
                 destination = root / EXACT_PACKAGE_HASH
@@ -183,7 +225,12 @@ class CycleWashTechnicalReportTests(unittest.TestCase):
                 ):
                     document = build_report_document("Normal", root)
 
-                self.assertEqual(provenance, document.selected_report.provenance)
+                self.assertEqual(
+                    "Analytical load estimate", document.selected_report.provenance
+                )
+                self.assertEqual(
+                    fea_provenance, document.selected_report.fea_provenance
+                )
                 self.assertEqual(before, snapshot_tree(root))
 
     def test_drivetrain_distinguishes_target_from_practical_drum_speed(self) -> None:
@@ -226,6 +273,8 @@ class CycleWashTechnicalReportTests(unittest.TestCase):
         self.assertAlmostEqual(8.041658397249357, components["shaft"].minimum_factor_of_safety)
         self.assertEqual(226, components["shaft"].node_count)
         self.assertEqual(619, components["shaft"].element_count)
+        self.assertEqual("Analytical load estimate", report.provenance)
+        self.assertEqual("Solved Stage 1 FEA", report.fea_provenance)
         self.assertIn("Scenario: Normal", report.fea_summary)
         self.assertIn("Provenance: Solved Stage 1 FEA", report.fea_summary)
         self.assertTrue(any("shaft" in line.lower() for line in report.fea_summary))

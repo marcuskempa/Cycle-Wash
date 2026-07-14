@@ -69,6 +69,7 @@ class ScenarioReport:
     scenario: OperatingScenario
     results: ScenarioResults
     provenance: str
+    fea_provenance: str | None
     fea_package: Stage1FeaPackage | None
     fea_components: tuple[FeaComponentSummary, ...]
     fea_summary: tuple[str, ...]
@@ -154,6 +155,7 @@ def _build_scenario_report(
             scenario=scenario,
             results=results,
             provenance=ANALYTICAL_PROVENANCE,
+            fea_provenance=None,
             fea_package=None,
             fea_components=(),
             fea_summary=(),
@@ -162,7 +164,8 @@ def _build_scenario_report(
     return ScenarioReport(
         scenario=scenario,
         results=results,
-        provenance=SOLVED_FEA_PROVENANCE,
+        provenance=ANALYTICAL_PROVENANCE,
+        fea_provenance=SOLVED_FEA_PROVENANCE,
         fea_package=package,
         fea_components=fea_components,
         fea_summary=(
@@ -466,7 +469,7 @@ def _formula_catalogue(
 
 
 def _fea_result_formula(report: ScenarioReport) -> FormulaDefinition:
-    if report.fea_package is None:
+    if report.fea_package is None or report.fea_provenance is None:
         raise ValueError("FEA result definitions require a solved package")
     mesh_levels = report.fea_package.assumptions["request_identity"]["mesh_levels"]
     mesh_text = ", ".join(str(level) for level in mesh_levels)
@@ -500,7 +503,7 @@ def _fea_result_formula(report: ScenarioReport) -> FormulaDefinition:
             "FoS<sub>min,c</sub> = min<sub>j</sub>(FoS<sub>c,j</sub>)</div>"
         ),
         evaluated=(
-            f"scenario = {report.scenario.name}; provenance = {SOLVED_FEA_PROVENANCE}; "
+            f"scenario = {report.scenario.name}; provenance = {report.fea_provenance}; "
             f"mesh_level = {mesh_text}; "
             + "; ".join(evaluated_components)
             + "."
@@ -522,7 +525,7 @@ def _fea_result_formula(report: ScenarioReport) -> FormulaDefinition:
             _symbol("j", "mesh node index", "dimensionless", "exact cached FEA package"),
         ),
         explanation=(
-            f"For {report.scenario.name}, these extrema and mesh counts carry {SOLVED_FEA_PROVENANCE} "
+            f"For {report.scenario.name}, these extrema and mesh counts carry {report.fea_provenance} "
             "provenance from the exact cached Stage 1 package. The model is linear-static with reduced-order "
             "loads; nodal maxima are not transient structural analysis or CFD."
         ),
@@ -535,18 +538,35 @@ def _symbol(symbol: str, meaning: str, unit: str, source: str) -> SymbolDefiniti
 
 def _engineering_interpretation(selected: ScenarioReport) -> str:
     results = selected.results
-    return (
-        f"{selected.scenario.name} produces {results.imbalance_force_n:.1f} N of rotating wet-laundry force and "
+    analytical_text = (
+        f"{selected.provenance}: {selected.scenario.name} produces {results.imbalance_force_n:.1f} N of rotating "
+        "wet-laundry force and "
         f"a combined shaft von Mises estimate of {results.von_mises_pa / 1.0e6:.2f} MPa. "
         f"The corresponding analytical yield factor of safety is {results.factor_of_safety:.2f}."
+    )
+    if selected.fea_provenance is None:
+        return analytical_text
+    return (
+        analytical_text
+        + f" Separately, cached component metrics carry {selected.fea_provenance} provenance."
     )
 
 
 def _conclusion(selected: ScenarioReport) -> str:
+    analytical_text = (
+        f"For the {selected.scenario.name} operating point, scenario equations and supplemental shaft checks "
+        f"retain {selected.provenance} provenance."
+    )
+    fea_text = (
+        ""
+        if selected.fea_provenance is None
+        else f" Exact cached component metrics retain separate {selected.fea_provenance} provenance."
+    )
     return (
-        f"For the {selected.scenario.name} operating point, the shared analytical model reports "
-        f"{selected.provenance.lower()}. The result is suitable for transparent concept comparison, "
-        "with detailed dynamic, fatigue, bearing, and joint validation still required before fabrication."
+        analytical_text
+        + fea_text
+        + " These results support transparent concept comparison, with detailed dynamic, fatigue, bearing, "
+        "and joint validation still required before fabrication."
     )
 
 
