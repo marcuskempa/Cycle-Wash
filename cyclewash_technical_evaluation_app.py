@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from html import escape
 from pathlib import Path
+import re
 
 try:
     import streamlit as st
@@ -23,6 +24,7 @@ from cyclewash_technical_report_pdf import build_report_pdf
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 SCENARIO_NAMES = tuple(scenario.name for scenario in SCENARIOS)
+LATEX_DISPLAY_BREAK = re.compile(r",\s*\\(?:qquad|quad)\s*")
 
 
 @st.cache_data(show_spinner=False)
@@ -58,6 +60,21 @@ def _cached_html_bytes(selected_name: str, fea_root: str, stl_root: str) -> byte
 
 def _format_stress_mpa(stress_pa: float) -> str:
     return f"{stress_pa / 1.0e6:.2f} MPa"
+
+
+def _split_latex_displays(latex: str) -> tuple[str, ...]:
+    """Split compound equations into concise phone-width display blocks."""
+
+    return tuple(
+        display.strip()
+        for display in LATEX_DISPLAY_BREAK.split(latex)
+        if display.strip()
+    )
+
+
+def _render_latex(latex: str) -> None:
+    for display in _split_latex_displays(latex):
+        st.latex(display)
 
 
 def _render_table(headers: tuple[str, ...], rows: tuple[tuple[str, ...], ...]) -> None:
@@ -104,13 +121,13 @@ def _render_presentation_equations(document: ReportDocument) -> None:
     for identifier in ("unbalanced_wet_laundry_load", "combined_stress_and_factor_of_safety"):
         formula = formulas_by_id[identifier]
         st.subheader(formula.title)
-        st.latex(formula.latex)
+        _render_latex(formula.latex)
         st.caption(formula.evaluated)
 
 
 def _render_formula(formula: FormulaDefinition) -> None:
     st.subheader(formula.title)
-    st.latex(formula.latex)
+    _render_latex(formula.latex)
     st.markdown(f"**Evaluated substitution:** {formula.evaluated}")
     _render_table(
         ("Symbol", "Meaning", "SI unit", "Source"),
@@ -122,29 +139,56 @@ def _render_formula(formula: FormulaDefinition) -> None:
     st.write(formula.explanation)
 
 
-def _render_comparison(document: ReportDocument) -> None:
-    st.subheader("Scenario Comparison")
-    _render_table(
-        ("Scenario", "RPM", "Water mass", "Imbalance force", "Shaft stress", "FoS", "Provenance"),
-        tuple(
-            (
-                report.scenario.name,
-                f"{report.scenario.speed_rpm:.0f} RPM",
-                f"{report.results.analytical.retained_water_mass_kg:.1f} kg",
-                f"{report.results.imbalance_force_n:.1f} N",
-                _format_stress_mpa(report.results.von_mises_pa),
-                f"{report.results.factor_of_safety:.2f}",
-                report.fea_provenance or report.provenance,
-            )
-            for report in document.scenario_reports
-        ),
+def _scenario_comparison_rows(document: ReportDocument) -> tuple[tuple[str, ...], ...]:
+    return tuple(
+        (
+            report.scenario.name,
+            f"{report.scenario.speed_rpm:.0f} RPM",
+            f"{report.results.analytical.retained_water_mass_kg:.1f} kg",
+            f"{report.results.imbalance_force_n:.1f} N",
+            _format_stress_mpa(report.results.von_mises_pa),
+            f"{report.results.factor_of_safety:.2f}",
+            report.provenance,
+        )
+        for report in document.scenario_reports
     )
 
 
+def _render_comparison(document: ReportDocument) -> None:
+    st.subheader("Scenario Comparison")
+    _render_table(
+        (
+            "Scenario",
+            "RPM",
+            "Water mass",
+            "Imbalance force",
+            "Shaft stress",
+            "FoS",
+            "Analytical provenance",
+        ),
+        _scenario_comparison_rows(document),
+    )
+
+    st.subheader("Exact Cached FEA")
+    normal_report = next(
+        report for report in document.scenario_reports if report.scenario.name == "Normal"
+    )
+    if normal_report.fea_provenance is not None:
+        st.write(f"Normal availability: Available - {normal_report.fea_provenance}.")
+        for line in normal_report.fea_summary:
+            st.caption(line)
+    elif document.selected_report.scenario.name == "Normal":
+        st.write("Normal availability: No exact cached Stage 1 FEA package matches this request.")
+    else:
+        st.write(
+            "Normal availability: Select Normal to check and display its exact cached Stage 1 FEA package."
+        )
+
+
 def _render_technical_report(document: ReportDocument) -> None:
-    selected = document.selected_report
     _render_comparison(document)
 
+    selected = document.selected_report
     st.subheader("Selected Scenario")
     st.write(
         f"{selected.scenario.name} is a fixed operating point: "
@@ -177,9 +221,6 @@ def _render_technical_report(document: ReportDocument) -> None:
             f"{report.scenario.name}: analytical = {report.provenance}; "
             f"cached FEA = {report.fea_provenance or 'No exact cached Stage 1 FEA package'}."
         )
-    for line in selected.fea_summary:
-        st.caption(line)
-
     st.header("Assumptions")
     for item in document.assumptions:
         st.write(f"- {item}")
