@@ -11,7 +11,7 @@ from typing import Any, Final
 
 import numpy as np
 
-from cyclewash_geometry_policy import normalize_stl_part
+from cyclewash_geometry_policy import apply_closed_door_pose, normalize_stl_part
 from cyclewash_html_animation import encode_typed_array
 from cyclewash_structural_visualizer import AssemblyPart, StlPartSpec, load_stl_part
 from cyclewash_technical_report import (
@@ -116,7 +116,7 @@ def _load_normalized_parts(stl_root: Path) -> tuple[AssemblyPart, ...]:
                     component_kind=component_kind,
                 )
             )
-            normalized = normalize_stl_part(source_part).part
+            normalized = apply_closed_door_pose(normalize_stl_part(source_part).part)
         except (OSError, ValueError) as error:
             raise ValueError(f"unable to load STL for {name}: {path} ({error})") from error
         parts.append(normalized)

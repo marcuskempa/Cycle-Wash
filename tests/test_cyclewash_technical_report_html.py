@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 from dataclasses import replace
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -309,6 +310,55 @@ class CycleWashTechnicalReportHtmlTests(unittest.TestCase):
         for part in payload["geometry"]["parts"]:
             self.assertIn("base64", part["geometry"]["positions"])
             self.assertIn("base64", part["geometry"]["indices"])
+
+    def test_payload_closes_door_without_moving_enclosure_or_changing_opacity(self) -> None:
+        from cyclewash_geometry_policy import normalize_stl_part
+        from cyclewash_structural_visualizer import StlPartSpec, Transform, load_stl_part
+
+        payload = _payload_from_html(self.html)
+        payload_parts = {
+            part["name"]: part for part in payload["geometry"]["parts"]
+        }
+
+        def payload_vertices(name: str) -> np.ndarray:
+            positions = payload_parts[name]["geometry"]["positions"]
+            return np.frombuffer(
+                base64.b64decode(positions["base64"]), dtype=np.float32
+            ).reshape(positions["shape"])
+
+        def normalized_source(name: str, filename: str) -> AssemblyPart:
+            source = load_stl_part(
+                StlPartSpec(name=name, source=PROJECT_ROOT / filename)
+            )
+            return normalize_stl_part(source).part
+
+        open_door = normalized_source("door", "door.stl")
+        door_vertices = np.asarray(open_door.vertices, dtype=float)
+        minimum_x = float(door_vertices[:, 0].min())
+        tolerance = max(float(np.ptp(door_vertices[:, 0])) * 1.0e-6, 1.0e-9)
+        hinge_vertices = door_vertices[
+            np.isclose(door_vertices[:, 0], minimum_x, atol=tolerance, rtol=0.0)
+        ]
+        hinge_origin = hinge_vertices.mean(axis=0)
+        hinge_origin[0] = minimum_x
+        expected_closed_door = Transform.from_rotation(
+            (0.0, 0.0, -1.0), 90.0, origin=hinge_origin
+        ).apply(door_vertices)
+
+        np.testing.assert_allclose(
+            payload_vertices("door"), expected_closed_door, rtol=1.0e-6, atol=1.0e-7
+        )
+        self.assertFalse(np.allclose(payload_vertices("door"), door_vertices))
+
+        enclosure = normalized_source("enclosure", "enclosure.stl")
+        np.testing.assert_allclose(
+            payload_vertices("enclosure"),
+            enclosure.vertices,
+            rtol=1.0e-6,
+            atol=1.0e-7,
+        )
+        self.assertEqual(0.5, payload_parts["door"]["opacity"])
+        self.assertEqual(0.5, payload_parts["enclosure"]["opacity"])
 
     def test_payload_preserves_shaft_pivot_and_adds_drum_envelope(self) -> None:
         from cyclewash_technical_report_html import _load_normalized_parts

@@ -49,7 +49,12 @@ from cyclewash_engineering_model import (
 )
 from cyclewash_fea_results import load_stage1_package
 from cyclewash_fea_mapping import MappedFeaFields, map_fea_fields_to_stl
-from cyclewash_geometry_policy import normalize_stl_part
+from cyclewash_geometry_policy import (
+    apply_closed_door_pose,
+    closed_door_pose_angle,
+    estimate_door_hinge_origin,
+    normalize_stl_part,
+)
 from cyclewash_fea_runner import (
     FeaRunnerError,
     detect_fea_solver,
@@ -92,7 +97,6 @@ DEFAULT_PARTS = [
 ROTATING_NAME_TOKENS = ("inner drum", "inner_drum", "drum", "agitator", "gear", "shaft")
 PRIMARY_ROTATING_NAMES = {"inner drum", "inner_drum", "gear", "shaft"}
 DOOR_NAME_TOKENS = ("door",)
-DOOR_CLOSED_ROTATION_DEGREES = 90.0
 FULL_OPACITY_NAME_TOKENS = ("inner drum", "inner_drum", "drum", "agitator", "gear", "shaft", "door")
 COMPONENT_KIND_OPTIONS = ["casing", "shaft", "gear", "rotational"]
 LOAD_CASE_SHORT_LABELS = {
@@ -673,40 +677,7 @@ def _make_part_spec(name: str, source) -> StlPartSpec:
 
 def _estimate_door_hinge_origin(part: AssemblyPart, hinge_side: str) -> tuple[float, float, float]:
     """Estimate a hinge origin from vertices on the selected door boundary."""
-    vertices = part.vertices
-    bounds_min = vertices.min(axis=0)
-    bounds_max = vertices.max(axis=0)
-    center = (bounds_min + bounds_max) / 2.0
-    side_map = {
-        "min x": (0, bounds_min[0]),
-        "max x": (0, bounds_max[0]),
-        "min y": (1, bounds_min[1]),
-        "max y": (1, bounds_max[1]),
-    }
-    selection = side_map.get(hinge_side.lower())
-    if selection is None:
-        origin = center
-    else:
-        axis_index, extreme = selection
-        axis_span = float(bounds_max[axis_index] - bounds_min[axis_index])
-        tolerance = max(axis_span * 1.0e-6, 1.0e-9)
-        boundary_mask = np.isclose(
-            vertices[:, axis_index],
-            extreme,
-            atol=tolerance,
-            rtol=0.0,
-        )
-        origin = vertices[boundary_mask].mean(axis=0)
-        origin[axis_index] = extreme
-    return (float(origin[0]), float(origin[1]), float(origin[2]))
-
-
-def closed_door_pose_angle(opening_degrees: float) -> float:
-    """Map a door opening angle onto the exported STL's open-pose rotation."""
-    opening = float(opening_degrees)
-    if not math.isfinite(opening) or not 0.0 <= opening <= 90.0:
-        raise ValueError("door opening angle must be between 0 and 90 degrees")
-    return DOOR_CLOSED_ROTATION_DEGREES - opening
+    return estimate_door_hinge_origin(part, hinge_side)
 
 
 def infer_rotating_axis_origin(parts: list[AssemblyPart]) -> tuple[float, float, float]:
@@ -947,14 +918,16 @@ def build_stage1_analytical_preview(
     rotation_origin = infer_rotating_axis_origin(part_list)
     rotation_angle = float(phase_degrees) % 360.0
     display_parts = [
-        _apply_motion_pose(
-            part,
-            rotation_axis=rotation_axis,
-            rotation_origin=rotation_origin,
-            rotation_angle_degrees=rotation_angle,
-            door_axis=(0.0, 0.0, -1.0),
-            door_angle_degrees=0.0,
-            door_hinge_origin=(0.0, 0.0, 0.0),
+        apply_closed_door_pose(
+            _apply_motion_pose(
+                part,
+                rotation_axis=rotation_axis,
+                rotation_origin=rotation_origin,
+                rotation_angle_degrees=rotation_angle,
+                door_axis=(0.0, 0.0, -1.0),
+                door_angle_degrees=0.0,
+                door_hinge_origin=(0.0, 0.0, 0.0),
+            )
         )
         for part in part_list
     ]
@@ -1161,19 +1134,7 @@ def build_fea_figure(
 def _physical_context_part(part: AssemblyPart) -> AssemblyPart:
     """Normalize assembly context and return the door in its closed pose."""
 
-    physical = normalize_stl_part(part).part
-    if not _is_door_part(physical.name):
-        return physical
-    hinge_origin = _estimate_door_hinge_origin(physical, "min X")
-    return _apply_motion_pose(
-        physical,
-        rotation_axis=(1.0, 0.0, 0.0),
-        rotation_origin=(0.0, 0.0, 0.0),
-        rotation_angle_degrees=0.0,
-        door_axis=(0.0, 0.0, -1.0),
-        door_angle_degrees=closed_door_pose_angle(0.0),
-        door_hinge_origin=hinge_origin,
-    )
+    return apply_closed_door_pose(normalize_stl_part(part).part)
 
 
 def build_mapped_fea_figure(

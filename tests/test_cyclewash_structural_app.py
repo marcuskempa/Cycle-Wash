@@ -7,6 +7,8 @@ from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
+import numpy as np
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 PAGE_PATH = PROJECT_ROOT / "pages" / "2_Structural_Load_Visualizer.py"
@@ -139,3 +141,66 @@ class FeaActionStateTests(unittest.TestCase):
                     self.assertFalse(
                         any("exact solved" in notice.lower() for notice in notices)
                     )
+
+
+class AnalyticalPreviewGeometryTests(unittest.TestCase):
+    def test_preview_closes_door_without_moving_enclosure_or_changing_opacity(self) -> None:
+        from cyclewash_engineering_model import (
+            EngineeringInputs,
+            calculate_engineering_loads,
+        )
+        from cyclewash_structural_app import build_stage1_analytical_preview
+        from cyclewash_structural_visualizer import AssemblyPart, Transform
+
+        faces = np.asarray(
+            [[0, 1, 2], [0, 3, 1], [0, 2, 3], [1, 3, 2]], dtype=np.int64
+        )
+        door_vertices = np.asarray(
+            [
+                [0.0, 0.0, 0.0],
+                [0.0, 2.0, 0.0],
+                [0.0, 0.0, 2.0],
+                [2.0, 0.0, 0.0],
+            ],
+            dtype=float,
+        )
+        enclosure_vertices = door_vertices + np.asarray([10.0, 20.0, 30.0])
+        parts = [
+            AssemblyPart(name="door", local_vertices=door_vertices, faces=faces),
+            AssemblyPart(
+                name="enclosure", local_vertices=enclosure_vertices, faces=faces
+            ),
+        ]
+        inputs = EngineeringInputs()
+
+        figure, _ = build_stage1_analytical_preview(
+            parts,
+            inputs,
+            calculate_engineering_loads(inputs),
+            colorscale="Turbo",
+            phase_degrees=0.0,
+        )
+
+        traces = {trace.name: trace for trace in figure.data}
+        observed_door = np.column_stack(
+            (traces["door"].x, traces["door"].y, traces["door"].z)
+        )
+        hinge_origin = np.asarray([0.0, 2.0 / 3.0, 2.0 / 3.0])
+        expected_door = Transform.from_rotation(
+            (0.0, 0.0, -1.0), 90.0, origin=hinge_origin
+        ).apply(door_vertices)
+
+        np.testing.assert_allclose(observed_door, expected_door, atol=1.0e-12)
+        np.testing.assert_allclose(
+            np.column_stack(
+                (
+                    traces["enclosure"].x,
+                    traces["enclosure"].y,
+                    traces["enclosure"].z,
+                )
+            ),
+            enclosure_vertices,
+            atol=1.0e-12,
+        )
+        self.assertEqual(0.5, traces["door"].opacity)
+        self.assertEqual(0.5, traces["enclosure"].opacity)
