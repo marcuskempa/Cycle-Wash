@@ -301,6 +301,7 @@ def _selected_result_table(selected: ScenarioReport, styles: dict[str, Paragraph
         ("Total shaft moment", f"{result.total_moment_n_m:.3f} N m"),
         ("Bending stress", f"{result.bending_stress_pa / 1e6:.3f} MPa"),
         ("Torsional shear", f"{analytical.shaft_torsional_shear_pa / 1e6:.3f} MPa"),
+        ("Combined von Mises stress", f"{result.von_mises_pa / 1e6:.3f} MPa"),
         ("Yield factor of safety", f"{result.factor_of_safety:.3f}"),
     )
     return _metric_table(entries, styles)
