@@ -23,7 +23,11 @@ from cyclewash_technical_report import (
     build_report_document,
     core_formulas,
 )
-from cyclewash_technical_report_html import build_offline_report_html, build_scenario_viewer_html
+from cyclewash_technical_report_html import (
+    build_offline_report_html,
+    build_scenario_viewer_html,
+    viewer_asset_fingerprint,
+)
 from cyclewash_technical_report_pdf import build_report_pdf
 
 
@@ -40,9 +44,16 @@ def _cached_report_document(selected_name: str, fea_root: str) -> ReportDocument
 
 
 @st.cache_data(show_spinner=False)
-def _cached_viewer_html(selected_name: str, fea_root: str, stl_root: str) -> str:
-    """Cache STL parsing and the generated offline viewer document."""
+def _cached_viewer_html(
+    selected_name: str,
+    fea_root: str,
+    stl_root: str,
+    asset_fingerprint: str,
+) -> str:
+    """Cache STL parsing and HTML by scenario and embedded asset version."""
 
+    if not asset_fingerprint:
+        raise ValueError("asset_fingerprint must not be empty")
     document = _cached_report_document(selected_name, fea_root)
     return build_scenario_viewer_html(document, selected_name, stl_root)
 
@@ -56,9 +67,16 @@ def _cached_pdf_bytes(selected_name: str, fea_root: str, stl_root: str) -> bytes
 
 
 @st.cache_data(show_spinner=False)
-def _cached_html_bytes(selected_name: str, fea_root: str, stl_root: str) -> bytes:
-    """Cache the self-contained offline report bytes for the selected scenario."""
+def _cached_html_bytes(
+    selected_name: str,
+    fea_root: str,
+    stl_root: str,
+    asset_fingerprint: str,
+) -> bytes:
+    """Cache offline report bytes by scenario and embedded asset version."""
 
+    if not asset_fingerprint:
+        raise ValueError("asset_fingerprint must not be empty")
     document = _cached_report_document(selected_name, fea_root)
     return build_offline_report_html(document, stl_root)
 
@@ -158,10 +176,20 @@ def _render_comparison(document: ReportDocument) -> None:
     )
 
 
-def _render_downloads(selected_name: str, fea_root: str, stl_root: str) -> None:
+def _render_downloads(
+    selected_name: str,
+    fea_root: str,
+    stl_root: str,
+    asset_fingerprint: str,
+) -> None:
     try:
         pdf_bytes = _cached_pdf_bytes(selected_name, fea_root, stl_root)
-        html_bytes = _cached_html_bytes(selected_name, fea_root, stl_root)
+        html_bytes = _cached_html_bytes(
+            selected_name,
+            fea_root,
+            stl_root,
+            asset_fingerprint,
+        )
     except (OSError, RuntimeError, TypeError, ValueError):
         st.error(
             "Report exports are unavailable. Verify that the local STL files and report assets are present, "
@@ -205,23 +233,29 @@ def main() -> None:
     stl_root = str(PROJECT_ROOT)
     fea_root = str(PROJECT_ROOT / "fea_results")
     try:
+        viewer_version = viewer_asset_fingerprint()
         document = _cached_report_document(selected_name, fea_root)
-        viewer_html = _cached_viewer_html(selected_name, fea_root, stl_root)
+        viewer_html = _cached_viewer_html(
+            selected_name,
+            fea_root,
+            stl_root,
+            viewer_version,
+        )
     except (OSError, RuntimeError, TypeError, ValueError):
         st.error(
             "Technical evaluation could not load its local report or STL assets. "
-            "Confirm the CycleWash project files are complete, then reload the page."
+            "Confirm the CycleWash project files are complete, then reload this page."
         )
         return
 
+    st.iframe(viewer_html, height=610, width="stretch")
     _render_selected_metrics(document)
-    st.iframe(viewer_html, height=610)
     st.header("Core Engineering Checks")
     for formula in core_formulas(document):
         _render_formula(formula)
     _render_comparison(document)
     st.info(LIMITATIONS_NOTE)
-    _render_downloads(selected_name, fea_root, stl_root)
+    _render_downloads(selected_name, fea_root, stl_root, viewer_version)
 
 
 if __name__ == "__main__":

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 from dataclasses import replace
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -14,6 +15,7 @@ import subprocess
 from tempfile import TemporaryDirectory
 import threading
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 
@@ -110,6 +112,46 @@ class CycleWashTechnicalReportHtmlTests(unittest.TestCase):
         self.assertIn('id="play-pause"', viewer)
         self.assertIn('id="phase-slider"', viewer)
         self.assertIn('id="speed-select"', viewer)
+
+    def test_viewer_only_uses_horizontal_toolbar_above_full_width_canvas(self) -> None:
+        from cyclewash_technical_report_html import build_scenario_viewer_html
+
+        viewer = build_scenario_viewer_html(self.document, "Normal", PROJECT_ROOT)
+
+        self.assertLess(
+            viewer.index('<div class="controls"'),
+            viewer.index('<div class="scene-wrap">'),
+        )
+        self.assertIn('grid-template-areas: "playback phase speed";', viewer)
+        self.assertNotIn("grid-template-columns: minmax(0, 1fr) 280px", viewer)
+        self.assertIn(
+            '<p id="viewer-status" class="viewer-status" role="status" '
+            'aria-live="polite">Viewer starting...</p>',
+            viewer,
+        )
+        self.assertIn("viewerStatus.hidden = true;", viewer)
+
+    def test_viewer_asset_fingerprint_changes_with_template_or_runtime(self) -> None:
+        import cyclewash_technical_report_html as html_module
+
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            template = root / "template.html"
+            runtime = root / "runtime.js"
+            template.write_text("template-v1", encoding="utf-8")
+            runtime.write_bytes(b"runtime-v1")
+            with patch.object(html_module, "TEMPLATE_PATH", template), patch.object(
+                html_module, "THREE_BUNDLE_PATH", runtime
+            ):
+                first = html_module.viewer_asset_fingerprint()
+                template.write_text("template-v2", encoding="utf-8")
+                second = html_module.viewer_asset_fingerprint()
+                runtime.write_bytes(b"runtime-v2")
+                third = html_module.viewer_asset_fingerprint()
+
+        self.assertRegex(first, r"^[0-9a-f]{64}$")
+        self.assertNotEqual(first, second)
+        self.assertNotEqual(second, third)
 
     def test_offline_report_contains_only_core_equations_and_one_limitation(self) -> None:
         rendered_formula_ids = tuple(
@@ -268,6 +310,55 @@ class CycleWashTechnicalReportHtmlTests(unittest.TestCase):
         for part in payload["geometry"]["parts"]:
             self.assertIn("base64", part["geometry"]["positions"])
             self.assertIn("base64", part["geometry"]["indices"])
+
+    def test_payload_closes_door_without_moving_enclosure_or_changing_opacity(self) -> None:
+        from cyclewash_geometry_policy import normalize_stl_part
+        from cyclewash_structural_visualizer import StlPartSpec, Transform, load_stl_part
+
+        payload = _payload_from_html(self.html)
+        payload_parts = {
+            part["name"]: part for part in payload["geometry"]["parts"]
+        }
+
+        def payload_vertices(name: str) -> np.ndarray:
+            positions = payload_parts[name]["geometry"]["positions"]
+            return np.frombuffer(
+                base64.b64decode(positions["base64"]), dtype=np.float32
+            ).reshape(positions["shape"])
+
+        def normalized_source(name: str, filename: str) -> AssemblyPart:
+            source = load_stl_part(
+                StlPartSpec(name=name, source=PROJECT_ROOT / filename)
+            )
+            return normalize_stl_part(source).part
+
+        open_door = normalized_source("door", "door.stl")
+        door_vertices = np.asarray(open_door.vertices, dtype=float)
+        minimum_x = float(door_vertices[:, 0].min())
+        tolerance = max(float(np.ptp(door_vertices[:, 0])) * 1.0e-6, 1.0e-9)
+        hinge_vertices = door_vertices[
+            np.isclose(door_vertices[:, 0], minimum_x, atol=tolerance, rtol=0.0)
+        ]
+        hinge_origin = hinge_vertices.mean(axis=0)
+        hinge_origin[0] = minimum_x
+        expected_closed_door = Transform.from_rotation(
+            (0.0, 0.0, -1.0), 90.0, origin=hinge_origin
+        ).apply(door_vertices)
+
+        np.testing.assert_allclose(
+            payload_vertices("door"), expected_closed_door, rtol=1.0e-6, atol=1.0e-7
+        )
+        self.assertFalse(np.allclose(payload_vertices("door"), door_vertices))
+
+        enclosure = normalized_source("enclosure", "enclosure.stl")
+        np.testing.assert_allclose(
+            payload_vertices("enclosure"),
+            enclosure.vertices,
+            rtol=1.0e-6,
+            atol=1.0e-7,
+        )
+        self.assertEqual(0.5, payload_parts["door"]["opacity"])
+        self.assertEqual(0.5, payload_parts["enclosure"]["opacity"])
 
     def test_payload_preserves_shaft_pivot_and_adds_drum_envelope(self) -> None:
         from cyclewash_technical_report_html import _load_normalized_parts

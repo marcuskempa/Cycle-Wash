@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, is_dataclass
+import hashlib
 import html
 import json
 from pathlib import Path
@@ -10,7 +11,7 @@ from typing import Any, Final
 
 import numpy as np
 
-from cyclewash_geometry_policy import normalize_stl_part
+from cyclewash_geometry_policy import apply_closed_door_pose, normalize_stl_part
 from cyclewash_html_animation import encode_typed_array
 from cyclewash_structural_visualizer import AssemblyPart, StlPartSpec, load_stl_part
 from cyclewash_technical_report import (
@@ -27,6 +28,17 @@ THREE_BUNDLE_PATH: Final[Path] = MODULE_DIRECTORY / "assets" / "cyclewash-three-
 MAX_TOTAL_TRIANGLES: Final[int] = 150_000
 MAX_GEOMETRY_BYTES: Final[int] = 4 * 1024 * 1024
 MAX_OFFLINE_HTML_BYTES: Final[int] = 8 * 1024 * 1024
+
+def viewer_asset_fingerprint() -> str:
+    """Hash every non-Python asset that changes generated viewer HTML."""
+
+    digest = hashlib.sha256()
+    for path in (TEMPLATE_PATH, THREE_BUNDLE_PATH):
+        content = path.read_bytes()
+        digest.update(path.name.encode("utf-8"))
+        digest.update(len(content).to_bytes(8, byteorder="big"))
+        digest.update(content)
+    return digest.hexdigest()
 
 _REQUIRED_PARTS: Final[tuple[tuple[str, str, str, str], ...]] = (
     ("enclosure", "enclosure.stl", "#9ca3af", "casing"),
@@ -104,7 +116,7 @@ def _load_normalized_parts(stl_root: Path) -> tuple[AssemblyPart, ...]:
                     component_kind=component_kind,
                 )
             )
-            normalized = normalize_stl_part(source_part).part
+            normalized = apply_closed_door_pose(normalize_stl_part(source_part).part)
         except (OSError, ValueError) as error:
             raise ValueError(f"unable to load STL for {name}: {path} ({error})") from error
         parts.append(normalized)
@@ -338,4 +350,8 @@ def _text(value: Any) -> str:
     return html.escape(str(value), quote=True)
 
 
-__all__ = ["build_offline_report_html", "build_scenario_viewer_html"]
+__all__ = [
+    "build_offline_report_html",
+    "build_scenario_viewer_html",
+    "viewer_asset_fingerprint",
+]

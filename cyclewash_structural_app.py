@@ -41,6 +41,7 @@ from cyclewash_structural_visualizer import (
     stationary_water_stress,
 )
 from cyclewash_engineering_model import (
+    AnalyticalResults,
     EngineeringInputs,
     MaterialProperties,
     calculate_engineering_loads,
@@ -48,7 +49,12 @@ from cyclewash_engineering_model import (
 )
 from cyclewash_fea_results import load_stage1_package
 from cyclewash_fea_mapping import MappedFeaFields, map_fea_fields_to_stl
-from cyclewash_geometry_policy import normalize_stl_part
+from cyclewash_geometry_policy import (
+    apply_closed_door_pose,
+    closed_door_pose_angle,
+    estimate_door_hinge_origin,
+    normalize_stl_part,
+)
 from cyclewash_fea_runner import (
     FeaRunnerError,
     detect_fea_solver,
@@ -91,7 +97,6 @@ DEFAULT_PARTS = [
 ROTATING_NAME_TOKENS = ("inner drum", "inner_drum", "drum", "agitator", "gear", "shaft")
 PRIMARY_ROTATING_NAMES = {"inner drum", "inner_drum", "gear", "shaft"}
 DOOR_NAME_TOKENS = ("door",)
-DOOR_CLOSED_ROTATION_DEGREES = 90.0
 FULL_OPACITY_NAME_TOKENS = ("inner drum", "inner_drum", "drum", "agitator", "gear", "shaft", "door")
 COMPONENT_KIND_OPTIONS = ["casing", "shaft", "gear", "rotational"]
 LOAD_CASE_SHORT_LABELS = {
@@ -115,6 +120,44 @@ class AnimationExportSelection:
     analysis_mode: str
     package: object | None
     caption: str
+
+
+@dataclass(frozen=True)
+class FeaActionState:
+    """One honest action state for the current canonical FEA request."""
+
+    mode: str
+    action_label: str | None
+    notice: str
+
+
+def resolve_fea_action_state(
+    *,
+    cached_package_available: bool,
+    solver_available: bool,
+) -> FeaActionState:
+    if cached_package_available:
+        return FeaActionState(
+            mode="cache",
+            action_label="Load Cached Stage 1 FEA",
+            notice="An exact solved Stage 1 FEA package matches these inputs.",
+        )
+    if solver_available:
+        return FeaActionState(
+            mode="solve",
+            action_label="Run Stage 1 FEA",
+            notice="The local Stage 1 FEA environment is available.",
+        )
+    return FeaActionState(
+        mode="analytical",
+        action_label=None,
+        notice=(
+            "Analytical preview updates for these inputs. Solved Stage 1 FEA for "
+            "this combination must be run locally."
+        ),
+    )
+
+
 REQUIRED_ANIMATION_PARTS = ("shaft", "gear", "inner drum")
 
 
@@ -634,40 +677,7 @@ def _make_part_spec(name: str, source) -> StlPartSpec:
 
 def _estimate_door_hinge_origin(part: AssemblyPart, hinge_side: str) -> tuple[float, float, float]:
     """Estimate a hinge origin from vertices on the selected door boundary."""
-    vertices = part.vertices
-    bounds_min = vertices.min(axis=0)
-    bounds_max = vertices.max(axis=0)
-    center = (bounds_min + bounds_max) / 2.0
-    side_map = {
-        "min x": (0, bounds_min[0]),
-        "max x": (0, bounds_max[0]),
-        "min y": (1, bounds_min[1]),
-        "max y": (1, bounds_max[1]),
-    }
-    selection = side_map.get(hinge_side.lower())
-    if selection is None:
-        origin = center
-    else:
-        axis_index, extreme = selection
-        axis_span = float(bounds_max[axis_index] - bounds_min[axis_index])
-        tolerance = max(axis_span * 1.0e-6, 1.0e-9)
-        boundary_mask = np.isclose(
-            vertices[:, axis_index],
-            extreme,
-            atol=tolerance,
-            rtol=0.0,
-        )
-        origin = vertices[boundary_mask].mean(axis=0)
-        origin[axis_index] = extreme
-    return (float(origin[0]), float(origin[1]), float(origin[2]))
-
-
-def closed_door_pose_angle(opening_degrees: float) -> float:
-    """Map a door opening angle onto the exported STL's open-pose rotation."""
-    opening = float(opening_degrees)
-    if not math.isfinite(opening) or not 0.0 <= opening <= 90.0:
-        raise ValueError("door opening angle must be between 0 and 90 degrees")
-    return DOOR_CLOSED_ROTATION_DEGREES - opening
+    return estimate_door_hinge_origin(part, hinge_side)
 
 
 def infer_rotating_axis_origin(parts: list[AssemblyPart]) -> tuple[float, float, float]:
@@ -892,6 +902,63 @@ def build_structural_figure(
     return figure
 
 
+def build_stage1_analytical_preview(
+    parts: Sequence[AssemblyPart],
+    inputs: EngineeringInputs,
+    analytical: AnalyticalResults,
+    colorscale: str,
+    phase_degrees: float,
+) -> tuple[go.Figure, str]:
+    """Build a geometric STL load map for a valid unsolved input request."""
+
+    part_list = list(parts)
+    if not part_list:
+        raise ValueError("analytical preview requires loaded STL parts")
+    rotation_axis = (1.0, 0.0, 0.0)
+    rotation_origin = infer_rotating_axis_origin(part_list)
+    rotation_angle = float(phase_degrees) % 360.0
+    display_parts = [
+        apply_closed_door_pose(
+            _apply_motion_pose(
+                part,
+                rotation_axis=rotation_axis,
+                rotation_origin=rotation_origin,
+                rotation_angle_degrees=rotation_angle,
+                door_axis=(0.0, 0.0, -1.0),
+                door_angle_degrees=0.0,
+                door_hinge_origin=(0.0, 0.0, 0.0),
+            )
+        )
+        for part in part_list
+    ]
+    load_case = "Spin + water circulation through drum holes"
+    presentation = load_case_presentation(display_parts, load_case)
+    figure = build_structural_figure(
+        parts=display_parts,
+        presentation=presentation,
+        load_case=load_case,
+        colorscale=colorscale,
+        casing_axis=(0.0, 0.0, -1.0),
+        rotation_axis=rotation_axis,
+        rotation_origin=rotation_origin,
+        rotation_angle_degrees=rotation_angle,
+        drum_speed_rpm=inputs.speed_rpm,
+        water_fill_fraction=inputs.fill_fraction,
+        perforation_relief=inputs.perforation_relief,
+        door_axis=(0.0, 0.0, -1.0),
+        door_hinge_origin=(0.0, 0.0, 0.0),
+    )
+    summary = format_fea_engineering_summary(
+        inputs,
+        analytical,
+        package_summary=(
+            "Analytical preview from the current STL geometry and reduced-order "
+            "loads. No solved FEA package is attached."
+        ),
+    )
+    return figure, summary
+
+
 def format_structural_math_summary(
     load_case: str,
     principal_parts: tuple[str, ...],
@@ -1067,19 +1134,7 @@ def build_fea_figure(
 def _physical_context_part(part: AssemblyPart) -> AssemblyPart:
     """Normalize assembly context and return the door in its closed pose."""
 
-    physical = normalize_stl_part(part).part
-    if not _is_door_part(physical.name):
-        return physical
-    hinge_origin = _estimate_door_hinge_origin(physical, "min X")
-    return _apply_motion_pose(
-        physical,
-        rotation_axis=(1.0, 0.0, 0.0),
-        rotation_origin=(0.0, 0.0, 0.0),
-        rotation_angle_degrees=0.0,
-        door_axis=(0.0, 0.0, -1.0),
-        door_angle_degrees=closed_door_pose_angle(0.0),
-        door_hinge_origin=hinge_origin,
-    )
+    return apply_closed_door_pose(normalize_stl_part(part).part)
 
 
 def build_mapped_fea_figure(
@@ -1959,14 +2014,39 @@ def _render_fea_visualizer() -> None:
     if status.available:
         version_text = ", ".join(f"{name} {version}" for name, version in status.versions.items())
         st.success(f"{status.message} {version_text}")
-    else:
+    elif status.python_path is not None and status.python_path.is_file():
         st.warning(status.message)
+    else:
+        st.caption(
+            "Optional local Stage 1 FEA solver is not installed in this environment."
+        )
 
-    cached_package_available = (expected_path / "summary.json").is_file()
+    cached_package_available = False
+    if (expected_path / "summary.json").is_file():
+        try:
+            require_matching_package(
+                load_stage1_package(expected_path), inputs, mesh_levels
+            )
+        except (OSError, ValueError) as error:
+            st.warning(f"Request-path FEA cache was rejected: {error}")
+        else:
+            cached_package_available = True
     if cached_package_available:
         st.caption(f"A request-path cache is available at {expected_path}.")
 
-    if st.button("Run Stage 1 FEA", type="primary", disabled=not status.available and not cached_package_available):
+    action_state = resolve_fea_action_state(
+        cached_package_available=cached_package_available,
+        solver_available=status.available,
+    )
+    if action_state.mode == "analytical":
+        st.info(action_state.notice)
+        action_requested = False
+    else:
+        st.caption(action_state.notice)
+        assert action_state.action_label is not None
+        action_requested = st.button(action_state.action_label, type="primary")
+
+    if action_requested:
         previous_path = st.session_state.get(SELECTED_FEA_PACKAGE_SESSION_KEY)
         progress_bar = st.progress(0.0, text="0% - Preparing Stage 1 FEA")
         live_status = st.status("Preparing Stage 1 FEA", expanded=False)
@@ -2056,11 +2136,44 @@ def _render_fea_visualizer() -> None:
                 "Selected FEA package was rejected for visualization; HTML export will use "
                 f"the geometric preview fallback. Details: {package_load_error}"
             )
-        else:
-            st.info(
-                "Run or select the matching cached request to view physical FEA results. "
-                "HTML animation export remains available from the loaded STL assembly."
+            return
+        if action_state.mode == "analytical":
+            if missing_export_geometry:
+                missing_text = ", ".join(missing_export_geometry)
+                st.error(
+                    "Analytical preview requires the following STL components: "
+                    f"{missing_text}. Select a folder containing the complete assembly."
+                )
+                st.subheader("Analytical Calculation Summary")
+                st.code(
+                    format_fea_engineering_summary(
+                        inputs,
+                        analytical,
+                        package_summary=(
+                            "Analytical calculations are available, but the STL load map "
+                            f"was not rendered because these components are missing: {missing_text}."
+                        ),
+                    ),
+                    language="text",
+                    wrap_lines=True,
+                )
+                return
+            st.subheader("Analytical preview")
+            figure, analytical_summary = build_stage1_analytical_preview(
+                animation_parts,
+                inputs,
+                analytical,
+                fea_animation_colorscale,
+                float(requested_phase),
             )
+            viewer_column, summary_column = st.columns([1.45, 1.0], gap="large")
+            with viewer_column:
+                st.plotly_chart(figure, width="stretch")
+            with summary_column:
+                st.subheader("Analytical Calculation Summary")
+                st.code(analytical_summary, language="text", wrap_lines=True)
+            return
+        st.info("Load the exact cached request or run the local solver to view physical FEA results.")
         return
 
     component_name = st.segmented_control(

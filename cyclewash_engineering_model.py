@@ -339,6 +339,7 @@ Assumptions
 - Gear: {inputs.gear_sprocket_thickness_m:.4f} m sprocket, {inputs.gear_hub_radius_m:.4f} m hub radius, {inputs.gear_hub_thickness_m:.4f} m hub thickness.
 - Human input is {inputs.human_power_w:.1f} W at {inputs.speed_rpm:.1f} RPM.
 - A transient design factor of {inputs.transient_factor:.2f} multiplies torque.
+- Drum water fill is {inputs.fill_fraction:.0%} of the nominal internal volume.
 - The model applies {inputs.perforation_relief:.0%} perforation relief to retained mass and centrifugal pressure.
 - It applies {inputs.slosh_amplification:.2f} slosh amplification to hydrostatic pressure.
 - Materials are homogeneous, isotropic, and linearly elastic.

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from typing import Any
 
 import numpy as np
@@ -18,7 +19,11 @@ from cyclewash_dimensions import (
     SHAFT_DIAMETER_M,
     SHAFT_LENGTH_M,
 )
-from cyclewash_structural_visualizer import AssemblyPart
+from cyclewash_structural_visualizer import AssemblyPart, Transform
+
+
+DOOR_CLOSED_ROTATION_DEGREES = 90.0
+DOOR_CLOSED_AXIS = (0.0, 0.0, -1.0)
 
 
 @dataclass(frozen=True)
@@ -113,6 +118,62 @@ def normalize_stl_part(part: AssemblyPart) -> NormalizedGeometry:
     )
 
 
+def estimate_door_hinge_origin(
+    part: AssemblyPart, hinge_side: str
+) -> tuple[float, float, float]:
+    """Estimate a hinge origin from vertices on the selected door boundary."""
+
+    vertices = np.asarray(part.vertices, dtype=float)
+    bounds_min = vertices.min(axis=0)
+    bounds_max = vertices.max(axis=0)
+    center = (bounds_min + bounds_max) / 2.0
+    side_map = {
+        "min x": (0, bounds_min[0]),
+        "max x": (0, bounds_max[0]),
+        "min y": (1, bounds_min[1]),
+        "max y": (1, bounds_max[1]),
+    }
+    selection = side_map.get(hinge_side.lower())
+    if selection is None:
+        origin = center
+    else:
+        axis_index, extreme = selection
+        axis_span = float(bounds_max[axis_index] - bounds_min[axis_index])
+        tolerance = max(axis_span * 1.0e-6, 1.0e-9)
+        boundary_mask = np.isclose(
+            vertices[:, axis_index], extreme, atol=tolerance, rtol=0.0
+        )
+        origin = vertices[boundary_mask].mean(axis=0)
+        origin[axis_index] = extreme
+    return (float(origin[0]), float(origin[1]), float(origin[2]))
+
+
+def closed_door_pose_angle(opening_degrees: float) -> float:
+    """Map a door opening angle onto the exported STL's open-pose rotation."""
+
+    opening = float(opening_degrees)
+    if not math.isfinite(opening) or not 0.0 <= opening <= 90.0:
+        raise ValueError("door opening angle must be between 0 and 90 degrees")
+    return DOOR_CLOSED_ROTATION_DEGREES - opening
+
+
+def apply_closed_door_pose(part: AssemblyPart) -> AssemblyPart:
+    """Return door geometry in the approved closed pose; leave other parts unchanged."""
+
+    normalized_name = part.name.lower().replace("_", " ").strip()
+    if "door" not in normalized_name:
+        return part
+    world_part = _part_with_vertices(part, part.vertices)
+    hinge_origin = estimate_door_hinge_origin(world_part, "min X")
+    return world_part.transformed(
+        Transform.from_rotation(
+            DOOR_CLOSED_AXIS,
+            closed_door_pose_angle(0.0),
+            origin=hinge_origin,
+        )
+    )
+
+
 __all__ = [
     "ASSEMBLY_SCALE_TO_M",
     "DRUM_DEPTH_M",
@@ -120,5 +181,8 @@ __all__ = [
     "GEAR_OUTSIDE_RADIUS_M",
     "GEAR_PITCH_RADIUS_M",
     "NormalizedGeometry",
+    "apply_closed_door_pose",
+    "closed_door_pose_angle",
+    "estimate_door_hinge_origin",
     "normalize_stl_part",
 ]

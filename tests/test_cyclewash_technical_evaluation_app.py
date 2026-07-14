@@ -44,6 +44,60 @@ class CycleWashTechnicalEvaluationAppTests(unittest.TestCase):
                 self.assertIn(required_text, source)
         self.assertIn('PROJECT_ROOT / "fea_results"', source)
 
+    def test_viewer_precedes_metrics_and_uses_asset_versioned_cache(self) -> None:
+        from cyclewash_technical_evaluation_app import main
+
+        source = Path(main.__code__.co_filename).read_text(encoding="utf-8")
+        main_body = source[source.index("def main()") :]
+
+        self.assertLess(
+            main_body.index("st.iframe("),
+            main_body.index("_render_selected_metrics(document)"),
+        )
+        self.assertIn("viewer_asset_fingerprint()", main_body)
+        self.assertIn('width="stretch"', main_body)
+
+    def test_viewer_cache_function_accepts_asset_fingerprint(self) -> None:
+        import inspect
+        from cyclewash_technical_evaluation_app import _cached_viewer_html
+
+        parameter_names = tuple(inspect.signature(_cached_viewer_html).parameters)
+        self.assertEqual(
+            ("selected_name", "fea_root", "stl_root", "asset_fingerprint"),
+            parameter_names,
+        )
+
+    def test_offline_html_cache_accepts_asset_fingerprint(self) -> None:
+        import inspect
+        from cyclewash_technical_evaluation_app import _cached_html_bytes
+
+        parameter_names = tuple(inspect.signature(_cached_html_bytes).parameters)
+        self.assertEqual(
+            ("selected_name", "fea_root", "stl_root", "asset_fingerprint"),
+            parameter_names,
+        )
+
+    def test_offline_html_cache_rebuilds_when_asset_fingerprint_changes(self) -> None:
+        import cyclewash_technical_evaluation_app as app_module
+
+        app_module._cached_html_bytes.clear()
+        with (
+            patch.object(app_module, "_cached_report_document", return_value=object()),
+            patch.object(
+                app_module,
+                "build_offline_report_html",
+                side_effect=(b"asset-v1", b"asset-v2"),
+            ) as build_html,
+        ):
+            first = app_module._cached_html_bytes("Normal", "fea", "stl", "hash-a")
+            repeated = app_module._cached_html_bytes("Normal", "fea", "stl", "hash-a")
+            changed = app_module._cached_html_bytes("Normal", "fea", "stl", "hash-b")
+
+        self.assertEqual(b"asset-v1", first)
+        self.assertEqual(first, repeated)
+        self.assertEqual(b"asset-v2", changed)
+        self.assertEqual(2, build_html.call_count)
+
     def test_comparison_rows_contain_six_engineering_values(self) -> None:
         from cyclewash_technical_evaluation_app import _scenario_comparison_rows
         from cyclewash_technical_report import build_report_document
@@ -140,10 +194,26 @@ class CycleWashTechnicalEvaluationAppTests(unittest.TestCase):
         self.assertEqual(1, len(app.error))
         self.assertEqual(
             "Technical evaluation could not load its local report or STL assets. "
-            "Confirm the CycleWash project files are complete, then reload the page.",
+            "Confirm the CycleWash project files are complete, then reload this page.",
             app.error[0].value,
         )
         self.assertNotIn("internal cache detail", app.error[0].value)
+
+    def test_viewer_asset_failure_uses_the_page_error_boundary(self) -> None:
+        from streamlit.testing.v1 import AppTest
+        import cyclewash_technical_evaluation_app as app_module
+
+        with patch.object(
+            app_module,
+            "viewer_asset_fingerprint",
+            side_effect=OSError("missing viewer runtime"),
+        ):
+            app = AppTest.from_file(str(PAGE_PATH)).run(timeout=60)
+
+        self.assertEqual([], app.exception)
+        self.assertEqual(1, len(app.error))
+        self.assertIn("project files are complete", app.error[0].value)
+        self.assertNotIn("missing viewer runtime", app.error[0].value)
 
 
 if __name__ == "__main__":

@@ -14,12 +14,16 @@
     .viewer-header { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
     .viewer-header h2 { margin: 0; font-size: 1.25rem; }
     .provenance { color: #a7f3d0; font-size: .9rem; }
-    .viewer-grid { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 16px; margin-top: 14px; }
-    .scene-wrap { min-height: 460px; position: relative; border: 1px solid #334155; background: #080d15; }
+    .viewer-grid { display: grid; grid-template-rows: auto minmax(460px, 1fr); gap: 12px; margin-top: 14px; }
+    .scene-wrap { width: 100%; min-width: 0; position: relative; border: 1px solid #334155; background: #080d15; }
     #scene { display: block; width: 100%; height: 100%; min-height: 460px; outline: none; }
     .scene-label { position: absolute; left: 12px; bottom: 10px; margin: 0; color: #cbd5e1; font-size: .8rem; pointer-events: none; }
     .controls, .metrics { border: 1px solid #334155; padding: 12px; background: #162131; }
-    .controls { display: grid; gap: 12px; align-content: start; }
+    .controls { display: grid; grid-template-columns: minmax(240px, 1fr) minmax(110px, .35fr) minmax(260px, 1.5fr) minmax(120px, .45fr); grid-template-areas: "scenarios playback phase speed"; gap: 12px; align-items: end; }
+    .scenario-selector { grid-area: scenarios; }
+    .playback-control { grid-area: playback; }
+    .phase-control { grid-area: phase; }
+    .speed-control { grid-area: speed; }
     .scenario-selector { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
     body[data-viewer-only="true"] { overflow: hidden; background: #101722; }
     body[data-viewer-only="true"] .scenario-selector { display: none; }
@@ -27,9 +31,11 @@
     body[data-viewer-only="true"] .metrics,
     body[data-viewer-only="true"] .scene-label { display: none; }
     body[data-viewer-only="true"] .viewer-shell { min-height: 100vh; padding: 0; }
-    body[data-viewer-only="true"] .viewer-grid { height: 100vh; margin-top: 0; }
+    body[data-viewer-only="true"] .viewer-grid { height: 100vh; margin-top: 0; grid-template-rows: auto minmax(0, 1fr); }
+    body[data-viewer-only="true"] .controls { grid-template-columns: minmax(110px, .35fr) minmax(260px, 1.5fr) minmax(120px, .45fr); grid-template-areas: "playback phase speed"; }
     body[data-viewer-only="true"] .scene-wrap,
     body[data-viewer-only="true"] #scene { height: 100%; min-height: 0; }
+    .viewer-status { position: absolute; inset: 12px auto auto 12px; z-index: 2; margin: 0; padding: 8px 10px; border: 1px solid #64748b; background: rgba(15, 23, 42, .92); color: #f8fafc; }
     .scenario-selector button, #play-pause { border: 1px solid #64748b; background: #223046; color: #edf2f7; padding: 8px 10px; cursor: pointer; }
     .scenario-selector button[aria-pressed="true"] { background: #0f766e; border-color: #5eead4; }
     .control-row { display: grid; gap: 5px; font-size: .9rem; }
@@ -56,10 +62,11 @@
     tbody th { color: #152231; }
     @media (max-width: 760px) {
       .viewer-shell { padding: 14px; }
-      .viewer-grid { grid-template-columns: 1fr; }
       .scene-wrap, #scene { min-height: 360px; }
+      .controls { grid-template-columns: 1fr 1fr; grid-template-areas: "scenarios scenarios" "playback speed" "phase phase"; }
+      body[data-viewer-only="true"] .controls { grid-template-columns: 1fr 1fr; grid-template-areas: "playback speed" "phase phase"; }
       body[data-viewer-only="true"] .viewer-grid {
-        grid-template-rows: minmax(360px, 1fr) auto;
+        grid-template-rows: auto minmax(0, 1fr);
       }
       .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .technical-report { padding: 20px 14px; }
@@ -82,25 +89,25 @@
       <span class="provenance">Relative analytical load: animation color only, not solved FEA stress.</span>
     </div>
     <div class="viewer-grid">
-      <div class="scene-wrap">
-        <canvas id="scene" tabindex="0" aria-label="CycleWash 3D assembly viewer"></canvas>
-        <p class="scene-label">Gravity-referenced water body with bounded schematic slosh. Door closed at 50% transparency.</p>
-        <div id="water-body" hidden></div>
-        <div id="imbalance-vector" hidden></div>
-      </div>
       <div class="controls" aria-label="Playback controls">
         <div class="scenario-selector" id="scenario-selector" role="group" aria-label="Fixed operating scenario">
           <button type="button" data-scenario="Gentle">Gentle</button>
           <button type="button" data-scenario="Normal">Normal</button>
           <button type="button" data-scenario="Heavy">Heavy</button>
         </div>
-        <div class="control-row"><label for="play-pause">Playback</label><button id="play-pause" type="button">Pause</button></div>
-        <div class="control-row"><label for="phase-slider">Phase <output id="phase-output">0 deg</output></label><input id="phase-slider" type="range" min="0" max="360" value="0" step="1"></div>
-        <div class="control-row"><label for="speed-select">Playback speed</label><select id="speed-select"><option value="0.25">0.25x</option><option value="0.5">0.5x</option><option value="1" selected>1x</option><option value="2">2x</option></select></div>
+        <div class="control-row playback-control"><label for="play-pause">Playback</label><button id="play-pause" type="button">Pause</button></div>
+        <div class="control-row phase-control"><label for="phase-slider">Phase <output id="phase-output">0 deg</output></label><input id="phase-slider" type="range" min="0" max="360" value="0" step="1"></div>
+        <div class="control-row speed-control"><label for="speed-select">Playback speed</label><select id="speed-select"><option value="0.25">0.25x</option><option value="0.5">0.5x</option><option value="1" selected>1x</option><option value="2">2x</option></select></div>
+      </div>
+      <div class="scene-wrap">
+        <canvas id="scene" tabindex="0" aria-label="CycleWash 3D assembly viewer"></canvas>
+        <p id="viewer-status" class="viewer-status" role="status" aria-live="polite">Viewer starting...</p>
+        <p class="scene-label">Gravity-referenced water body with bounded schematic slosh. Door closed at 50% transparency.</p>
+        <div id="water-body" hidden></div>
+        <div id="imbalance-vector" hidden></div>
       </div>
     </div>
     <div class="metrics" id="scenario-metrics" aria-live="polite"></div>
-    <p id="viewer-status" role="status" aria-live="polite" hidden></p>
   </section>
   @@REPORT_HTML@@
   <script id="cyclewash-report-data" type="application/json">@@PAYLOAD_JSON@@</script>
@@ -161,6 +168,7 @@
       body.dataset.viewerSmokePhase = String(state.controls.phase);
       body.dataset.viewerSmokeSpeed = String(state.controls.speed);
       viewerStatus.textContent = "Viewer ready";
+      viewerStatus.hidden = true;
     }
     function recordControls(controls) {
       state.controls = controls;
@@ -366,7 +374,6 @@ window.CycleWashThree = CycleWashThree;
     });
     selectScenario(selectedName);
     runRuntimeSmokeTest();
-    viewerStatus.textContent = "Viewer starting";
     requestAnimationFrame(frame);
     } catch (error) {
       console.error(error);

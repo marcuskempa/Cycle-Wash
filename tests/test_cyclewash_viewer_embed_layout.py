@@ -27,6 +27,8 @@ class ViewerEmbedLayoutTests(unittest.TestCase):
             'body[data-viewer-only="true"] .viewer-grid { height: 100vh;',
             viewer,
         )
+        self.assertIn("grid-template-rows: auto minmax(0, 1fr);", viewer)
+        self.assertNotIn("280px", viewer)
         self.assertIn(
             'body[data-viewer-only="true"] .scene-wrap,',
             viewer,
