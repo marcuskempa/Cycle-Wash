@@ -77,6 +77,27 @@ class CycleWashTechnicalEvaluationAppTests(unittest.TestCase):
             parameter_names,
         )
 
+    def test_offline_html_cache_rebuilds_when_asset_fingerprint_changes(self) -> None:
+        import cyclewash_technical_evaluation_app as app_module
+
+        app_module._cached_html_bytes.clear()
+        with (
+            patch.object(app_module, "_cached_report_document", return_value=object()),
+            patch.object(
+                app_module,
+                "build_offline_report_html",
+                side_effect=(b"asset-v1", b"asset-v2"),
+            ) as build_html,
+        ):
+            first = app_module._cached_html_bytes("Normal", "fea", "stl", "hash-a")
+            repeated = app_module._cached_html_bytes("Normal", "fea", "stl", "hash-a")
+            changed = app_module._cached_html_bytes("Normal", "fea", "stl", "hash-b")
+
+        self.assertEqual(b"asset-v1", first)
+        self.assertEqual(first, repeated)
+        self.assertEqual(b"asset-v2", changed)
+        self.assertEqual(2, build_html.call_count)
+
     def test_comparison_rows_contain_six_engineering_values(self) -> None:
         from cyclewash_technical_evaluation_app import _scenario_comparison_rows
         from cyclewash_technical_report import build_report_document

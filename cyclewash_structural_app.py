@@ -2014,8 +2014,12 @@ def _render_fea_visualizer() -> None:
     if status.available:
         version_text = ", ".join(f"{name} {version}" for name, version in status.versions.items())
         st.success(f"{status.message} {version_text}")
+    elif status.python_path is not None and status.python_path.is_file():
+        st.warning(status.message)
     else:
-        st.caption(status.message)
+        st.caption(
+            "Optional local Stage 1 FEA solver is not installed in this environment."
+        )
 
     cached_package_available = False
     if (expected_path / "summary.json").is_file():

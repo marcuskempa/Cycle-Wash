@@ -166,13 +166,42 @@ class FeaActionStateTests(unittest.TestCase):
             "Stage 1 FEA solver dependencies are unavailable or broken. "
             "Re-run setup_cyclewash_fea.bat."
         )
-        broken = FeaSolverStatus(
+        with TemporaryDirectory() as solver_directory:
+            solver_python = Path(solver_directory) / "python.exe"
+            solver_python.touch()
+            broken = FeaSolverStatus(
+                available=False,
+                python_path=solver_python,
+                versions={},
+                message=diagnostic,
+            )
+            with patch.object(app_module, "detect_fea_solver", return_value=broken):
+                app = AppTest.from_file(str(PAGE_PATH)).run(timeout=90)
+                app.button_group[0].set_value("Simplified Stage 1 FEA").run(timeout=90)
+
+        self.assertEqual([], app.exception)
+        visible_messages = [
+            item.value
+            for collection in (app.caption, app.info, app.warning, app.error)
+            for item in collection
+        ]
+        self.assertIn(diagnostic, visible_messages)
+
+    def test_absent_hosted_solver_uses_neutral_local_only_caption(self) -> None:
+        from cyclewash_fea_runner import FeaSolverStatus
+        import cyclewash_structural_app as app_module
+        from streamlit.testing.v1 import AppTest
+
+        absent = FeaSolverStatus(
             available=False,
-            python_path=Path("work/.fea-venv/Scripts/python.exe"),
+            python_path=Path("missing/work/.fea-venv/Scripts/python.exe"),
             versions={},
-            message=diagnostic,
+            message=(
+                "Stage 1 FEA solver is not installed. Run "
+                "setup_cyclewash_fea.bat from the project root."
+            ),
         )
-        with patch.object(app_module, "detect_fea_solver", return_value=broken):
+        with patch.object(app_module, "detect_fea_solver", return_value=absent):
             app = AppTest.from_file(str(PAGE_PATH)).run(timeout=90)
             app.button_group[0].set_value("Simplified Stage 1 FEA").run(timeout=90)
 
@@ -182,7 +211,11 @@ class FeaActionStateTests(unittest.TestCase):
             for collection in (app.caption, app.info, app.warning, app.error)
             for item in collection
         ]
-        self.assertIn(diagnostic, visible_messages)
+        self.assertIn(
+            "Optional local Stage 1 FEA solver is not installed in this environment.",
+            visible_messages,
+        )
+        self.assertFalse(any("setup_cyclewash_fea.bat" in item for item in visible_messages))
 
     def test_invalid_request_path_cache_falls_back_without_solved_provenance(self) -> None:
         from cyclewash_fea_runner import FeaSolverStatus
