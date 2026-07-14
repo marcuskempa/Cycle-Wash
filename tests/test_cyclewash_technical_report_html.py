@@ -8,6 +8,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 from tempfile import TemporaryDirectory
@@ -18,6 +19,7 @@ import numpy as np
 
 from cyclewash_structural_visualizer import AssemblyPart
 from cyclewash_technical_report import (
+    CORE_FORMULA_IDS,
     LIMITATIONS_NOTE,
     build_report_document,
     core_formulas,
@@ -110,8 +112,11 @@ class CycleWashTechnicalReportHtmlTests(unittest.TestCase):
         self.assertIn('id="speed-select"', viewer)
 
     def test_offline_report_contains_only_core_equations_and_one_limitation(self) -> None:
-        for formula in core_formulas(self.document):
-            self.assertIn(formula.title, self.html)
+        rendered_formula_ids = tuple(
+            re.findall(r'<h3 id="formula-([^"]+)">', self.html)
+        )
+        self.assertEqual(CORE_FORMULA_IDS, rendered_formula_ids)
+        self.assertNotIn("Human Power, Torque, And Chain Force", self.html)
         self.assertNotIn("Exact FEA Result And Provenance", self.html)
         self.assertNotIn("Project Dimensions And Drivetrain", self.html)
         self.assertEqual(1, self.html.count(LIMITATIONS_NOTE))
@@ -265,10 +270,17 @@ class CycleWashTechnicalReportHtmlTests(unittest.TestCase):
             self.assertIn("base64", part["geometry"]["indices"])
 
     def test_payload_preserves_shaft_pivot_and_adds_drum_envelope(self) -> None:
+        from cyclewash_technical_report_html import _load_normalized_parts
+
         payload = _payload_from_html(self.html)
         envelope = payload["geometry"]["drum_envelope"]
+        shaft = next(
+            part for part in _load_normalized_parts(PROJECT_ROOT) if part.name == "shaft"
+        )
+        shaft_vertices = np.asarray(shaft.vertices, dtype=float)
+        expected_origin = (shaft_vertices.min(axis=0) + shaft_vertices.max(axis=0)) / 2.0
 
-        self.assertEqual(3, len(payload["geometry"]["rotation_origin"]))
+        np.testing.assert_allclose(payload["geometry"]["rotation_origin"], expected_origin)
         self.assertEqual(3, len(envelope["center_m"]))
         self.assertEqual(3, len(envelope["span_m"]))
         self.assertTrue(all(value > 0.0 for value in envelope["span_m"]))
