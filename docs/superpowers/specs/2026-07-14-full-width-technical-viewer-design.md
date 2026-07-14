@@ -13,6 +13,7 @@ The deployed Technical Evaluation currently shows an older tabbed, split-column 
 - Place playback controls in a compact horizontal toolbar above the canvas.
 - Keep report content concise and ordered for an introductory engineering presentation.
 - Preserve the existing two-page PDF and offline HTML exports.
+- Keep custom drum-fill and perforation-relief inputs useful on Streamlit Cloud through an automatically updated analytical preview.
 
 ## Non-Goals
 
@@ -20,6 +21,7 @@ The deployed Technical Evaluation currently shows an older tabbed, split-column 
 - Do not move scenario state exclusively into the iframe.
 - Do not change the approved scenario values, formulas, STL coordinate system, or analytical assumptions.
 - Do not add new FEA or CFD capabilities.
+- Do not install or run the optional Gmsh/SfePy solver stack on Streamlit Community Cloud.
 
 ## Page Layout
 
@@ -68,6 +70,20 @@ Viewer startup must produce either:
 
 A blank canvas without a status message is not an acceptable state. Cache keys must change when the viewer template or embedded runtime changes so Streamlit Cloud cannot continue serving stale generated HTML after deployment.
 
+## Hosted Analytical Preview And Stage 1 FEA
+
+Changing drum fill or perforation relief changes the canonical Stage 1 FEA request hash. The repository contains an exact cached package only for specific approved inputs, and the public Streamlit environment does not install the optional Gmsh/SfePy solver stack.
+
+The Structural Load Visualizer therefore uses three explicit states:
+
+1. **Exact cache available:** show an active `Load Cached Stage 1 FEA` action.
+2. **Local solver available:** show an active `Run Stage 1 FEA` action for the current valid inputs.
+3. **No cache and no solver:** automatically update the analytical calculations and geometric load visualization, label them `Analytical preview`, and show a concise note that solved Stage 1 FEA for this combination must be run locally.
+
+The third state does not show a misleading disabled `Run Stage 1 FEA` button. Fill and relief controls remain active, and changing either value immediately updates retained water mass, pressure, load coloring, and the copyable analytical calculation summary.
+
+Analytical preview values are never labeled as solved FEA stress. Existing provenance labels remain authoritative.
+
 ## Deployment Contract
 
 The public Streamlit application must be configured with:
@@ -84,6 +100,7 @@ The repository will include a short deployment note documenting these values. Af
 - Viewer runtime failures display inside the iframe instead of leaving an empty dark rectangle.
 - Export failures remain isolated to the download area and do not remove the interactive page.
 - Unsupported browser graphics produce a readable viewer status.
+- A missing hosted FEA solver is treated as an expected analytical-preview state, not as an application error.
 
 ## Verification
 
@@ -93,6 +110,7 @@ The repository will include a short deployment note documenting these values. Af
 - Streamlit AppTest verifies one scenario selector, one viewer, one metric row, four core equations, one comparison table, and one limitations note.
 - Browser QA covers desktop and 390 px mobile widths, all three scenarios, Play/Pause, phase changes, playback speed, and fresh console errors.
 - Browser QA confirms the assembly is visible rather than merely checking that the canvas exists.
+- Structural-page tests verify that non-default fill and relief values keep the analytical preview active and replace the unavailable solver button with a local-run explanation.
+- Structural-page tests verify exact cached inputs still expose `Load Cached Stage 1 FEA` and a local solver exposes `Run Stage 1 FEA`.
 - Deployment verification confirms Streamlit Cloud is running `main` with `Gear_Builder.py`.
 - Existing PDF tests continue to require exactly two pages and one limitations statement.
-
