@@ -237,7 +237,7 @@ class CycleWashTechnicalReportHtmlTests(unittest.TestCase):
         self.assertIn("parts", payload["geometry"])
         self.assertGreaterEqual(len(payload["geometry"]["parts"]), 5)
         self.assertNotIn("geometry", payload["scenarios"]["Gentle"])
-        self.assertEqual(1, payload_text.count('"geometry":{"parts"'))
+        self.assertEqual(1, payload_text.count('"parts":['))
         for part in payload["geometry"]["parts"]:
             self.assertIn("base64", part["geometry"]["positions"])
             self.assertIn("base64", part["geometry"]["indices"])
