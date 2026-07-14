@@ -13,7 +13,12 @@ import numpy as np
 from cyclewash_geometry_policy import normalize_stl_part
 from cyclewash_html_animation import encode_typed_array
 from cyclewash_structural_visualizer import AssemblyPart, StlPartSpec, load_stl_part
-from cyclewash_technical_report import FormulaDefinition, ReportDocument
+from cyclewash_technical_report import (
+    LIMITATIONS_NOTE,
+    FormulaDefinition,
+    ReportDocument,
+    core_formulas,
+)
 
 
 MODULE_DIRECTORY: Final[Path] = Path(__file__).resolve().parent
@@ -112,6 +117,16 @@ def _build_payload(document: ReportDocument, parts: tuple[AssemblyPart, ...]) ->
     shaft = next(part for part in parts if part.name.lower() == "shaft")
     shaft_vertices = np.asarray(shaft.vertices, dtype=float)
     rotation_origin = ((shaft_vertices.min(axis=0) + shaft_vertices.max(axis=0)) / 2.0).tolist()
+    inner_drum = next(
+        part for part in parts if _normalized_name(part.name) == "inner drum"
+    )
+    drum_vertices = np.asarray(inner_drum.vertices, dtype=float)
+    drum_minimum = drum_vertices.min(axis=0)
+    drum_maximum = drum_vertices.max(axis=0)
+    drum_span = drum_maximum - drum_minimum
+    if not np.all(np.isfinite(drum_span)) or np.any(drum_span <= 0.0):
+        raise ValueError("normalized Inner Drum geometry must have finite non-zero bounds")
+    drum_center = (drum_minimum + drum_maximum) / 2.0
     scenarios = {
         report.scenario.name: _scenario_payload(report)
         for report in document.scenario_reports
@@ -128,6 +143,10 @@ def _build_payload(document: ReportDocument, parts: tuple[AssemblyPart, ...]) ->
             "parts": geometry_parts,
             "rotation_axis": [1.0, 0.0, 0.0],
             "rotation_origin": [float(value) for value in rotation_origin],
+            "drum_envelope": {
+                "center_m": [float(value) for value in drum_center],
+                "span_m": [float(value) for value in drum_span],
+            },
             "source": "Normalized authoritative local STL geometry, embedded once.",
             "summary": geometry_summary,
         },
@@ -241,68 +260,36 @@ def _render_report(document: ReportDocument) -> str:
         f"<td>{report.scenario.speed_rpm:.0f} RPM</td>"
         f"<td>{report.scenario.human_power_w:.0f} W</td>"
         f"<td>{report.scenario.fill_fraction:.0%}</td>"
-        f"<td>{report.scenario.laundry_mass_kg:.1f} kg</td>"
-        f"<td>{report.scenario.eccentricity_m * 1000.0:.0f} mm</td>"
         f"<td>{report.results.imbalance_force_n:.1f} N</td>"
         f"<td>{report.results.factor_of_safety:.2f}</td>"
-        f"<td>{_text(report.provenance)}</td>"
         "</tr>"
         for report in document.scenario_reports
     )
-    formula_blocks = "".join(_formula_html(formula) for formula in document.formulas)
+    formula_blocks = "".join(_formula_html(formula) for formula in core_formulas(document))
     selected = document.selected_report
-    fea = "".join(f"<li>{_text(line)}</li>" for line in selected.fea_summary)
-    if not fea:
-        fea = "<li>No exact cached Stage 1 FEA package is attached to this selected scenario.</li>"
-    dimensions = "".join(
-        "<tr>"
-        f"<th scope=\"row\">{_text(item.symbol)}</th>"
-        f"<td>{_text(item.meaning)}</td><td>{_text(item.unit)}</td><td>{_text(item.source)}</td>"
-        "</tr>"
-        for item in document.project_dimensions
-    )
     return f"""
 <article class="technical-report">
   <header class="report-header">
     <p class="eyebrow">Offline technical evaluation</p>
     <h1>CycleWash Technical Evaluation</h1>
-    <p>Fixed operating scenarios, reduced-order analytical loads, and an interactive assembly playback.</p>
+    <p>Selected scenario: <strong>{_text(selected.scenario.name)}</strong> at {selected.scenario.speed_rpm:.0f} RPM, with an analytical shaft factor of safety of {selected.results.factor_of_safety:.2f}.</p>
   </header>
-  <section aria-labelledby="summary-heading">
-    <h2 id="summary-heading">Executive summary</h2>
-    <p>{_text(document.engineering_interpretation)}</p>
-  </section>
   <section aria-labelledby="comparison-heading">
     <h2 id="comparison-heading">Scenario comparison</h2>
-    <div class="table-wrap"><table><thead><tr><th>Scenario</th><th>Drum speed</th><th>Human power</th><th>Water fill</th><th>Wet laundry</th><th>Offset</th><th>Imbalance</th><th>FoS</th><th>Provenance</th></tr></thead><tbody>{scenario_rows}</tbody></table></div>
-  </section>
-  <section aria-labelledby="geometry-heading">
-    <h2 id="geometry-heading">Project geometry and drivetrain</h2>
-    <div class="table-wrap"><table><thead><tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Source</th></tr></thead><tbody>{dimensions}</tbody></table></div>
-    <p>{_text(document.units_note)}</p>
+    <div class="table-wrap"><table><thead><tr><th>Scenario</th><th>Drum speed</th><th>Human power</th><th>Water fill</th><th>Imbalance</th><th>FoS</th></tr></thead><tbody>{scenario_rows}</tbody></table></div>
   </section>
   <section aria-labelledby="formula-heading">
-    <h2 id="formula-heading">Formula definitions and evaluated substitutions</h2>
+    <h2 id="formula-heading">Core equations</h2>
     {formula_blocks}
   </section>
-  <section aria-labelledby="fea-heading">
-    <h2 id="fea-heading">FEA provenance</h2>
-    <p>Selected scenario analytical provenance: <strong>{_text(selected.provenance)}</strong>.</p>
-    <ul>{fea}</ul>
-  </section>
-  <section aria-labelledby="assumptions-heading"><h2 id="assumptions-heading">Assumptions</h2><ul>{_items(document.assumptions)}</ul></section>
-  <section aria-labelledby="limitations-heading"><h2 id="limitations-heading">Limitations</h2><ul>{_items(document.limitations)}</ul></section>
-  <section aria-labelledby="interpretation-heading"><h2 id="interpretation-heading">Engineering interpretation</h2><p>{_text(document.engineering_interpretation)}</p></section>
+  <section aria-labelledby="limitations-heading"><h2 id="limitations-heading">Limitations</h2><p>{_text(LIMITATIONS_NOTE)}</p></section>
   <section aria-labelledby="conclusion-heading"><h2 id="conclusion-heading">Conclusion</h2><p>{_text(document.conclusion)}</p></section>
 </article>"""
 
 
 def _formula_html(formula: FormulaDefinition) -> str:
     symbols = "".join(
-        "<tr>"
-        f"<th scope=\"row\">{_text(symbol.symbol)}</th>"
-        f"<td>{_text(symbol.meaning)}</td><td>{_text(symbol.unit)}</td><td>{_text(symbol.source)}</td>"
-        "</tr>"
+        f"<li><strong>{_text(symbol.symbol)}</strong>: {_text(symbol.meaning)} [{_text(symbol.unit)}]</li>"
         for symbol in formula.symbols
     )
     return f"""
@@ -310,13 +297,8 @@ def _formula_html(formula: FormulaDefinition) -> str:
   <h3 id="formula-{_text(formula.identifier)}">{_text(formula.title)}</h3>
   <div class="equation" aria-label="{_text(formula.latex)}">{formula.html}</div>
   <p><strong>Evaluated substitution:</strong> {_text(formula.evaluated)}</p>
-  <div class="table-wrap"><table><thead><tr><th>Symbol</th><th>Meaning</th><th>Unit</th><th>Source</th></tr></thead><tbody>{symbols}</tbody></table></div>
-  <p>{_text(formula.explanation)}</p>
+  <ul>{symbols}</ul>
 </section>"""
-
-
-def _items(values: tuple[str, ...]) -> str:
-    return "".join(f"<li>{_text(value)}</li>" for value in values)
 
 
 def _safe_json(value: Any) -> str:

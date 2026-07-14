@@ -8,7 +8,7 @@ import re
 import unittest
 import zlib
 
-from cyclewash_technical_report import build_report_document
+from cyclewash_technical_report import LIMITATIONS_NOTE, build_report_document, core_formulas
 from cyclewash_technical_report_pdf import build_report_pdf
 
 
@@ -96,62 +96,58 @@ class CycleWashTechnicalReportPdfTests(unittest.TestCase):
     def setUp(self) -> None:
         self.document = build_report_document("Normal", PROJECT_ROOT / "fea_results")
 
-    def test_builds_multi_page_pdf_with_required_engineering_content(self) -> None:
+    def test_builds_exact_two_page_introductory_report(self) -> None:
         pdf_bytes = build_report_pdf(self.document, PROJECT_ROOT)
         report_text = " ".join(_extract_pdf_text(pdf_bytes).split())
 
-        self.assertTrue(pdf_bytes.startswith(b"%PDF"))
-        self.assertGreaterEqual(len(re.findall(rb"/Type\s*/Page\b", pdf_bytes)), 4)
-        for expected_text in (
-            "CycleWash Technical Evaluation",
-            "Executive Technical Summary",
-            "Physical Geometry And Drivetrain Configuration",
-            "Gentle",
-            "Normal",
-            "Heavy",
-            "Detailed Selected Scenario: Normal",
-            "Formula Catalogue",
-            "Combined von Mises stress",
-            "Symbol",
-            "SI Unit",
-            "Analytical load estimate",
-            "Solved Stage 1 FEA",
-            "Assumptions",
-            "Limitations",
-            "Engineering Interpretation",
-            "Conclusion",
-            "schematic/analytical",
-        ):
-            self.assertIn(expected_text, report_text)
-
-        self.assertEqual(len(self.document.formulas), report_text.count("Evaluated substitution:"))
-        for formula in self.document.formulas:
+        self.assertEqual(2, len(re.findall(rb"/Type\s*/Page\b", pdf_bytes)))
+        self.assertEqual(1, len(re.findall(rb"/Subtype\s*/Image\b", pdf_bytes)))
+        for formula in core_formulas(self.document):
             self.assertIn(formula.title, report_text)
-            for evaluated_clause in formula.evaluated.split(";"):
-                self.assertIn(" ".join(evaluated_clause.split()), report_text)
-            for symbol in formula.symbols:
-                self.assertIn(symbol.symbol, report_text)
-                self.assertIn(symbol.meaning, report_text)
-                self.assertIn(symbol.unit, report_text)
-                self.assertIn(symbol.source, report_text)
+        self.assertEqual(1, report_text.count(LIMITATIONS_NOTE))
+        for removed in (
+            "Formula Catalogue",
+            "Exact FEA Result And Provenance",
+            "Assumptions",
+            "Physical Geometry And Drivetrain Configuration",
+        ):
+            self.assertNotIn(removed, report_text)
 
     def test_exported_pdf_bytes_and_embedded_images_are_deterministic(self) -> None:
         first_pdf = build_report_pdf(self.document, PROJECT_ROOT)
         second_pdf = build_report_pdf(self.document, PROJECT_ROOT)
 
         self.assertEqual(first_pdf, second_pdf)
-        self.assertEqual(3, len(re.findall(rb"/Subtype\s*/Image\b", first_pdf)))
+        self.assertEqual(1, len(re.findall(rb"/Subtype\s*/Image\b", first_pdf)))
 
-    def test_scenario_comparison_labels_each_row_as_analytical(self) -> None:
-        from cyclewash_technical_report_pdf import _report_styles, _scenario_table
-
-        table = _scenario_table(self.document.scenario_reports, _report_styles())
-        provenance_cells = [row[-1] for row in table._cellvalues[1:]]
-
-        self.assertEqual(3, len(provenance_cells))
-        self.assertTrue(
-            all(cell.getPlainText() == "Analytical load estimate" for cell in provenance_cells)
+    def test_page_one_is_concise_and_pdf_states_provenance_once(self) -> None:
+        from cyclewash_technical_report_pdf import (
+            _report_styles,
+            _scenario_table,
+            _summary_text,
         )
+
+        pdf_bytes = build_report_pdf(self.document, PROJECT_ROOT)
+        report_text = " ".join(_extract_pdf_text(pdf_bytes).split())
+        summary = _summary_text(self.document)
+        table = _scenario_table(self.document.scenario_reports, _report_styles())
+
+        self.assertNotIn(self.document.engineering_interpretation, summary)
+        self.assertNotIn(self.document.selected_report.provenance, summary)
+        self.assertEqual(
+            1, report_text.count(self.document.selected_report.provenance)
+        )
+        self.assertEqual(
+            1, report_text.count(self.document.engineering_interpretation)
+        )
+        water_mass = (
+            self.document.selected_report.results.analytical.retained_water_mass_kg
+        )
+        self.assertIn(
+            f"{water_mass:.1f} kg",
+            report_text,
+        )
+        self.assertTrue(all(len(row) == 8 for row in table._cellvalues))
 
     def test_rejects_invalid_document_and_stl_root(self) -> None:
         with self.assertRaises(TypeError):

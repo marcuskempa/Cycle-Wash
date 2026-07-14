@@ -8,6 +8,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 from tempfile import TemporaryDirectory
@@ -17,10 +18,22 @@ import unittest
 import numpy as np
 
 from cyclewash_structural_visualizer import AssemblyPart
-from cyclewash_technical_report import build_report_document
+from cyclewash_technical_report import (
+    CORE_FORMULA_IDS,
+    LIMITATIONS_NOTE,
+    build_report_document,
+    core_formulas,
+)
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _payload_from_html(html: str) -> dict[str, object]:
+    payload_text = html.split(
+        '<script id="cyclewash-report-data" type="application/json">', 1
+    )[1].split("</script>", 1)[0]
+    return json.loads(payload_text)
 
 
 def _find_supported_browser() -> Path | None:
@@ -73,19 +86,40 @@ class CycleWashTechnicalReportHtmlTests(unittest.TestCase):
         self.assertIn("OrbitControls", self.html)
         self.assertIn("Relative analytical load", self.html)
         self.assertIn("Scenario comparison", self.html)
-        self.assertIn("Assumptions", self.html)
         self.assertIn("Limitations", self.html)
-        self.assertIn("Engineering interpretation", self.html)
         self.assertIn("Conclusion", self.html)
         for scenario in ("Gentle", "Normal", "Heavy"):
             self.assertIn(scenario, self.html)
         for control in ("scenario-selector", "play-pause", "phase-slider", "speed-select"):
             self.assertIn(f'id="{control}"', self.html)
-        for formula in self.document.formulas:
+        for formula in core_formulas(self.document):
             self.assertIn(formula.title, self.html)
             self.assertIn(formula.evaluated, self.html)
             self.assertIn("Symbol", self.html)
-            self.assertIn("Source", self.html)
+            self.assertIn("Evaluated substitution", self.html)
+
+    def test_embedded_viewer_only_exposes_animation_controls(self) -> None:
+        from cyclewash_technical_report_html import build_scenario_viewer_html
+
+        viewer = build_scenario_viewer_html(self.document, "Normal", PROJECT_ROOT)
+
+        self.assertIn('data-viewer-only="true"', viewer)
+        self.assertIn('body[data-viewer-only="true"] .viewer-header', viewer)
+        self.assertIn('body[data-viewer-only="true"] .metrics', viewer)
+        self.assertIn('body[data-viewer-only="true"] .scene-label', viewer)
+        self.assertIn('id="play-pause"', viewer)
+        self.assertIn('id="phase-slider"', viewer)
+        self.assertIn('id="speed-select"', viewer)
+
+    def test_offline_report_contains_only_core_equations_and_one_limitation(self) -> None:
+        rendered_formula_ids = tuple(
+            re.findall(r'<h3 id="formula-([^"]+)">', self.html)
+        )
+        self.assertEqual(CORE_FORMULA_IDS, rendered_formula_ids)
+        self.assertNotIn("Human Power, Torque, And Chain Force", self.html)
+        self.assertNotIn("Exact FEA Result And Provenance", self.html)
+        self.assertNotIn("Project Dimensions And Drivetrain", self.html)
+        self.assertEqual(1, self.html.count(LIMITATIONS_NOTE))
 
     def test_export_is_offline_safe_and_deterministic(self) -> None:
         from cyclewash_technical_report_html import build_offline_report_html
@@ -230,10 +264,112 @@ class CycleWashTechnicalReportHtmlTests(unittest.TestCase):
         self.assertIn("parts", payload["geometry"])
         self.assertGreaterEqual(len(payload["geometry"]["parts"]), 5)
         self.assertNotIn("geometry", payload["scenarios"]["Gentle"])
-        self.assertEqual(1, payload_text.count('"geometry":{"parts"'))
+        self.assertEqual(1, payload_text.count('"parts":['))
         for part in payload["geometry"]["parts"]:
             self.assertIn("base64", part["geometry"]["positions"])
             self.assertIn("base64", part["geometry"]["indices"])
+
+    def test_payload_preserves_shaft_pivot_and_adds_drum_envelope(self) -> None:
+        from cyclewash_technical_report_html import _load_normalized_parts
+
+        payload = _payload_from_html(self.html)
+        envelope = payload["geometry"]["drum_envelope"]
+        shaft = next(
+            part for part in _load_normalized_parts(PROJECT_ROOT) if part.name == "shaft"
+        )
+        shaft_vertices = np.asarray(shaft.vertices, dtype=float)
+        expected_origin = (shaft_vertices.min(axis=0) + shaft_vertices.max(axis=0)) / 2.0
+
+        np.testing.assert_allclose(payload["geometry"]["rotation_origin"], expected_origin)
+        self.assertEqual(3, len(envelope["center_m"]))
+        self.assertEqual(3, len(envelope["span_m"]))
+        self.assertTrue(all(value > 0.0 for value in envelope["span_m"]))
+
+    def test_viewer_uses_blender_z_up_and_drum_relative_contents(self) -> None:
+        self.assertIn("camera.up.set(0, 0, 1)", self.html)
+        self.assertIn("grid.rotation.x = Math.PI / 2", self.html)
+        self.assertIn("payload.geometry.drum_envelope.center_m", self.html)
+        self.assertIn("const laundryBase = drumCenter.clone().sub(origin)", self.html)
+        self.assertIn("water.position.copy(drumCenter)", self.html)
+        self.assertNotIn("new THREE.BoxGeometry(0.55, 0.16, 0.34)", self.html)
+
+    def test_water_and_laundry_remain_inside_drum_envelope_at_cardinal_phases(
+        self,
+    ) -> None:
+        payload = _payload_from_html(self.html)
+        geometry = payload["geometry"]
+        envelope = geometry["drum_envelope"]
+        origin = np.asarray(geometry["rotation_origin"], dtype=float)
+        drum_center = np.asarray(envelope["center_m"], dtype=float)
+        drum_span = np.asarray(envelope["span_m"], dtype=float)
+        lower_bound = drum_center - drum_span / 2.0
+        upper_bound = drum_center + drum_span / 2.0
+        laundry_radius_m = 0.035
+
+        for scenario_name, scenario in payload["scenarios"].items():
+            fill_fraction = float(scenario["fill_fraction"])
+            eccentricity_m = float(scenario["eccentricity_m"])
+            laundry_local = drum_center - origin + np.asarray(
+                [0.0, eccentricity_m, 0.0]
+            )
+            water_radii = np.asarray(
+                [
+                    drum_span[0] * 0.38,
+                    drum_span[1] * 0.38,
+                    drum_span[2] * 0.38 * max(0.18, fill_fraction),
+                ]
+            )
+            water_center = drum_center.copy()
+            water_center[2] -= drum_span[2] * 0.18 * (1.0 - fill_fraction)
+
+            for phase_degrees in (0.0, 90.0, 180.0, 270.0):
+                phase_radians = np.deg2rad(phase_degrees)
+                cosine = np.cos(phase_radians)
+                sine = np.sin(phase_radians)
+                laundry_center = origin + np.asarray(
+                    [
+                        laundry_local[0],
+                        cosine * laundry_local[1] - sine * laundry_local[2],
+                        sine * laundry_local[1] + cosine * laundry_local[2],
+                    ]
+                )
+
+                slosh_radians = np.sin(
+                    phase_radians - np.pi / 4.0
+                ) * np.deg2rad(8.0)
+                slosh_cosine = np.cos(slosh_radians)
+                slosh_sine = np.sin(slosh_radians)
+                water_extents = np.asarray(
+                    [
+                        water_radii[0],
+                        np.hypot(
+                            water_radii[1] * slosh_cosine,
+                            water_radii[2] * slosh_sine,
+                        ),
+                        np.hypot(
+                            water_radii[1] * slosh_sine,
+                            water_radii[2] * slosh_cosine,
+                        ),
+                    ]
+                )
+
+                context = f"{scenario_name} at {phase_degrees:.0f} degrees"
+                self.assertTrue(
+                    np.all(laundry_center - laundry_radius_m >= lower_bound),
+                    f"laundry lower extent escaped the drum for {context}",
+                )
+                self.assertTrue(
+                    np.all(laundry_center + laundry_radius_m <= upper_bound),
+                    f"laundry upper extent escaped the drum for {context}",
+                )
+                self.assertTrue(
+                    np.all(water_center - water_extents >= lower_bound),
+                    f"water lower extent escaped the drum for {context}",
+                )
+                self.assertTrue(
+                    np.all(water_center + water_extents <= upper_bound),
+                    f"water upper extent escaped the drum for {context}",
+                )
 
     def test_scenario_viewer_has_fixed_selected_scenario_and_metrics(self) -> None:
         from cyclewash_technical_report_html import build_scenario_viewer_html

@@ -110,6 +110,20 @@ EXPECTED_FORMULA_SYMBOLS = {
 
 
 class CycleWashTechnicalReportTests(unittest.TestCase):
+    def test_introductory_report_subset_contains_four_core_formulas(self) -> None:
+        from cyclewash_technical_report import (
+            CORE_FORMULA_IDS,
+            LIMITATIONS_NOTE,
+            core_formulas,
+        )
+
+        document = build_report_document("Normal")
+        formulas = core_formulas(document)
+
+        self.assertEqual(CORE_FORMULA_IDS, tuple(formula.identifier for formula in formulas))
+        self.assertEqual(4, len(formulas))
+        self.assertIn("not validated structural FEA or CFD", LIMITATIONS_NOTE)
+
     def test_default_cache_is_not_attached_to_gentle_or_heavy_reports(self) -> None:
         project_root = Path(__file__).resolve().parents[1]
 

@@ -25,6 +25,17 @@ from cyclewash_scenarios import SCENARIOS, OperatingScenario, ScenarioResults, c
 CANONICAL_FEA_MESH_LEVELS: Final[tuple[str, ...]] = ("coarse",)
 ANALYTICAL_PROVENANCE: Final[str] = "Analytical load estimate"
 SOLVED_FEA_PROVENANCE: Final[str] = "Solved Stage 1 FEA"
+CORE_FORMULA_IDS: Final[tuple[str, ...]] = (
+    "drivetrain_speed_ratio",
+    "angular_speed_and_edge_velocity",
+    "unbalanced_wet_laundry_load",
+    "combined_stress_and_factor_of_safety",
+)
+LIMITATIONS_NOTE: Final[str] = (
+    "These results are simplified analytical estimates for an introductory design study, "
+    "not validated structural FEA or CFD. The model lacks the detailed materials, boundary "
+    "conditions, contacts, turbulence, and mesh refinement required for engineering validation."
+)
 
 
 @dataclass(frozen=True)
@@ -90,6 +101,13 @@ class ReportDocument:
     engineering_interpretation: str
     conclusion: str
     units_note: str
+
+
+def core_formulas(document: ReportDocument) -> tuple[FormulaDefinition, ...]:
+    """Return the concise formula subset used by the introductory page."""
+
+    by_identifier = {formula.identifier: formula for formula in document.formulas}
+    return tuple(by_identifier[identifier] for identifier in CORE_FORMULA_IDS)
 
 
 def build_report_document(
@@ -573,11 +591,14 @@ def _conclusion(selected: ScenarioReport) -> str:
 __all__ = [
     "ANALYTICAL_PROVENANCE",
     "CANONICAL_FEA_MESH_LEVELS",
+    "CORE_FORMULA_IDS",
     "FeaComponentSummary",
     "FormulaDefinition",
+    "LIMITATIONS_NOTE",
     "ReportDocument",
     "SOLVED_FEA_PROVENANCE",
     "ScenarioReport",
     "SymbolDefinition",
     "build_report_document",
+    "core_formulas",
 ]
