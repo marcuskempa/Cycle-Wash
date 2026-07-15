@@ -74,3 +74,51 @@ exactly two A4 pages.
 - Poppler reported unavailable `Symbol` and `ArialUnicode` display fonts while
   rasterizing; visual inspection showed the PDF equations and labels rendering
   legibly.
+
+## Review Follow-Up
+
+### RED
+
+```text
+.\.venv\Scripts\python.exe -m unittest tests.test_cyclewash_technical_report_pdf tests.test_cyclewash_technical_evaluation_app
+Ran 17 tests in 5.135s
+FAILED (errors=1)
+```
+
+The expected failure was the missing `_paint_triangles_far_to_near` extraction.
+The subsequent PDF-only RED run also showed the prior full-raster color test no
+longer passed once its gray/green/red/amber checks were correctly scoped to the
+schematic crop, and the original equation style's 14-point leading failed the
+new 17-point clearance contract.
+
+### GREEN
+
+```text
+.\.venv\Scripts\python.exe -m unittest tests.test_cyclewash_technical_report_pdf tests.test_cyclewash_technical_evaluation_app
+Ran 24 tests in 6.719s
+OK
+```
+
+### Additional Artifacts
+
+- `C:\Users\marcu\Documents\CAD builder\.worktrees\technical-load-report-polish\tmp\pdfs\cyclewash-task-3-review.pdf`
+- `C:\Users\marcu\Documents\CAD builder\.worktrees\technical-load-report-polish\tmp\pdfs\cyclewash-task-3-review-page-1.png`
+- `C:\Users\marcu\Documents\CAD builder\.worktrees\technical-load-report-polish\tmp\pdfs\cyclewash-task-3-review-page-2.png`
+
+Both review-follow-up pages were rendered at 140 DPI and inspected. Page 1 now
+contains gray enclosure, green drum, red shaft, and amber gear pixels inside
+the assembly crop rather than relying on the legend. Page 2 has visible space
+between each green subsection heading and its equation box; subscript descenders
+no longer touch the horizontal divider. The report still contains exactly two
+A4 pages.
+
+### Review Changes
+
+- Raster assertions now use only the schematic crop for all component-color and
+  white-washout checks.
+- The fingerprint test compares the result with SHA-256 over the schema version,
+  NUL separator, and actual PDF renderer source bytes.
+- `_paint_triangles_far_to_near` owns depth ordering and has an overlapping-face
+  fixture proving that the nearer triangle wins.
+- Equation leading, padding, and subsection clearance were increased; redundant
+  formula-block spacer height was removed to retain the two-page layout.

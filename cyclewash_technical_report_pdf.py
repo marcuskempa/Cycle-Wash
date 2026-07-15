@@ -25,7 +25,6 @@ from reportlab.platypus import (
     PageBreak,
     Paragraph,
     SimpleDocTemplate,
-    Spacer,
     Table,
     TableStyle,
 )
@@ -126,7 +125,7 @@ def _report_styles() -> dict[str, ParagraphStyle]:
             leading=13,
             textColor=GREEN,
             spaceBefore=8,
-            spaceAfter=4,
+            spaceAfter=8,
             keepWithNext=True,
         ),
         "body": ParagraphStyle(
@@ -159,12 +158,12 @@ def _report_styles() -> dict[str, ParagraphStyle]:
             parent=styles["BodyText"],
             fontName="CycleWashEquation",
             fontSize=10.5,
-            leading=14,
+            leading=17,
             textColor=DARK_BLUE,
             alignment=TA_CENTER,
             borderColor=colors.HexColor("#B9CBD7"),
             borderWidth=0.5,
-            borderPadding=6,
+            borderPadding=8,
             backColor=PALE_BLUE,
             spaceBefore=2,
             spaceAfter=5,
@@ -288,7 +287,6 @@ def _compact_formula_block(formula: FormulaDefinition, styles: dict[str, Paragra
             Paragraph(formula.title, styles["subsection"]),
             Paragraph(_equation_markup(formula.html), styles["equation"]),
             Paragraph(_equation_markup(formula.evaluated_html), styles["equation"]),
-            Spacer(1, 3),
         ]
     )
 
@@ -391,16 +389,25 @@ def _assembly_figure(stl_root: Path) -> bytes:
     for part_index, part in enumerate(parts):
         coordinates = project(part.vertices)
         _, vertex_depth = _orthographic_z_up_projection(part.vertices)
-        sample_count = min(part.faces.shape[0], 16000)
-        face_indices = np.linspace(0, part.faces.shape[0] - 1, sample_count, dtype=int)
+        candidate_indices = np.arange(part.faces.shape[0])
+        if part.component_kind == "drum":
+            # A fixed cutaway keeps the internal shaft and gear readable from the
+            # viewer camera while preserving their assembled coordinates.
+            face_depths = vertex_depth[part.faces].mean(axis=1)
+            candidate_indices = candidate_indices[
+                face_depths <= np.quantile(face_depths, 0.05)
+            ]
+        sample_limit = 16000 if part.component_kind == "casing" else 3000
+        sample_count = min(candidate_indices.size, sample_limit)
+        sample_offsets = np.linspace(0, candidate_indices.size - 1, sample_count, dtype=int)
+        face_indices = candidate_indices[sample_offsets]
         fill = _assembly_fill(part.component_kind, part.material_color)
         for face_index in face_indices:
             face = part.faces[face_index]
             triangles.append(
                 (float(vertex_depth[face].mean()), part_index, int(face_index), coordinates[face], fill)
             )
-    for _, _, _, triangle, fill in sorted(triangles, key=lambda item: item[:3]):
-        draw.polygon([tuple(point) for point in triangle], fill=fill)
+    _paint_triangles_far_to_near(draw, triangles)
     font = ImageFont.load_default()
     draw.rectangle((855, 52, 1060, 338), fill="#FFFFFF", outline="#BFCED6", width=2)
     draw.text((877, 72), "STL display key", fill="#123047", font=font)
@@ -431,7 +438,17 @@ def _orthographic_z_up_projection(vertices: np.ndarray) -> tuple[np.ndarray, np.
 
 def _assembly_fill(component_kind: str, material_color: str) -> tuple[int, int, int, int]:
     rgb = tuple(int(material_color[index : index + 2], 16) for index in (1, 3, 5))
-    return (*rgb, 150 if component_kind == "casing" else 255)
+    return (*rgb, 20 if component_kind == "casing" else 255)
+
+
+def _paint_triangles_far_to_near(
+    draw: ImageDraw.ImageDraw,
+    triangles: Iterable[tuple[float, int, int, np.ndarray, tuple[int, int, int, int]]],
+) -> None:
+    """Paint deterministic projected faces from farthest to nearest."""
+
+    for _, _, _, triangle, fill in sorted(triangles, key=lambda item: item[:3]):
+        draw.polygon([tuple(point) for point in triangle], fill=fill)
 
 
 def _png_bytes(image: PillowImage.Image) -> bytes:

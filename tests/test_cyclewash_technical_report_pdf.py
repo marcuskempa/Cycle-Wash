@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 from io import BytesIO
 from pathlib import Path
 import re
@@ -11,12 +12,14 @@ from unittest.mock import patch
 import zlib
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from cyclewash_technical_report import LIMITATIONS_NOTE, build_report_document, core_formulas
 from cyclewash_technical_report_pdf import (
     PDF_REPORT_SCHEMA_VERSION,
     _assembly_figure,
+    _paint_triangles_far_to_near,
+    _report_styles,
     build_report_pdf,
     pdf_report_fingerprint,
 )
@@ -139,10 +142,15 @@ class CycleWashTechnicalReportPdfTests(unittest.TestCase):
 
     def test_pdf_fingerprint_is_schema_versioned_sha256(self) -> None:
         fingerprint = pdf_report_fingerprint()
+        renderer_source = Path(pdf_report_fingerprint.__code__.co_filename).read_bytes()
+        expected = hashlib.sha256(
+            PDF_REPORT_SCHEMA_VERSION.encode("utf-8") + b"\0" + renderer_source
+        ).hexdigest()
 
         self.assertEqual(64, len(fingerprint))
         self.assertRegex(fingerprint, r"^[0-9a-f]{64}$")
         self.assertTrue(PDF_REPORT_SCHEMA_VERSION)
+        self.assertEqual(expected, fingerprint)
         with patch(
             "cyclewash_technical_report_pdf.PDF_REPORT_SCHEMA_VERSION",
             "cyclewash-pdf-v2",
@@ -157,7 +165,7 @@ class CycleWashTechnicalReportPdfTests(unittest.TestCase):
         background = np.array([247, 250, 251])
         non_background = np.any(schematic != background, axis=2)
         white = np.all(schematic == 255, axis=2)
-        red, green, blue = (pixels[:, :, index] for index in range(3))
+        red, green, blue = (schematic[:, :, index] for index in range(3))
 
         self.assertEqual(first_png, second_png)
         self.assertGreater(non_background.sum(), schematic.shape[0] * schematic.shape[1] * 0.12)
@@ -169,6 +177,30 @@ class CycleWashTechnicalReportPdfTests(unittest.TestCase):
         self.assertGreater(((red >= 130) & (red > green * 1.3) & (red > blue * 1.3)).sum(), 100)
         self.assertGreater(((red >= 170) & (green >= 100) & (blue <= 90)).sum(), 100)
         self.assertLess(white.sum(), schematic.shape[0] * schematic.shape[1] * 0.01)
+
+    def test_triangle_painter_draws_nearer_face_over_the_far_face(self) -> None:
+        image = Image.new("RGB", (20, 20), "white")
+        draw = ImageDraw.Draw(image)
+        far_triangle = np.array(((2, 2), (17, 2), (2, 17)))
+        near_triangle = np.array(((2, 2), (17, 2), (17, 17)))
+
+        _paint_triangles_far_to_near(
+            draw,
+            (
+                (1.0, 0, 0, far_triangle, (190, 64, 59, 255)),
+                (2.0, 0, 1, near_triangle, (26, 107, 87, 255)),
+            ),
+        )
+
+        self.assertEqual((26, 107, 87), image.getpixel((10, 5)))
+
+    def test_equation_style_has_clearance_for_subscripts_and_dividers(self) -> None:
+        equation_style = _report_styles()["equation"]
+
+        self.assertGreaterEqual(equation_style.leading, 17)
+        self.assertGreaterEqual(equation_style.borderPadding, 8)
+        self.assertGreaterEqual(equation_style.leading - equation_style.fontSize, 6.5)
+        self.assertGreaterEqual(_report_styles()["subsection"].spaceAfter, 8)
 
     def test_page_one_is_concise_and_pdf_states_provenance_once(self) -> None:
         from cyclewash_technical_report_pdf import (
