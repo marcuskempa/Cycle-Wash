@@ -31,7 +31,14 @@ from reportlab.platypus import (
 
 from cyclewash_geometry_policy import normalize_stl_part
 from cyclewash_structural_visualizer import StlPartSpec, load_stl_part
-from cyclewash_technical_report import LIMITATIONS_NOTE, FormulaDefinition, ReportDocument, ScenarioReport, core_formulas
+from cyclewash_technical_report import (
+    LIMITATIONS_NOTE,
+    FormulaDefinition,
+    ReportDocument,
+    ScenarioReport,
+    build_report_document,
+    core_formulas,
+)
 
 
 PAGE_WIDTH, PAGE_HEIGHT = A4
@@ -54,7 +61,14 @@ def pdf_report_fingerprint() -> str:
     """Return a cache key for the PDF schema and renderer implementation."""
 
     source_bytes = Path(__file__).read_bytes()
-    payload = PDF_REPORT_SCHEMA_VERSION.encode("utf-8") + b"\0" + source_bytes
+    report_source = Path(build_report_document.__code__.co_filename).read_bytes()
+    payload = (
+        PDF_REPORT_SCHEMA_VERSION.encode("utf-8")
+        + b"\0"
+        + source_bytes
+        + b"\0"
+        + report_source
+    )
     return sha256(payload).hexdigest()
 
 
@@ -389,15 +403,17 @@ def _assembly_figure(stl_root: Path) -> bytes:
     for part_index, part in enumerate(parts):
         coordinates = project(part.vertices)
         _, vertex_depth = _orthographic_z_up_projection(part.vertices)
-        candidate_indices = np.arange(part.faces.shape[0])
-        if part.component_kind == "drum":
-            # A fixed cutaway keeps the internal shaft and gear readable from the
-            # viewer camera while preserving their assembled coordinates.
-            face_depths = vertex_depth[part.faces].mean(axis=1)
-            candidate_indices = candidate_indices[
-                face_depths <= np.quantile(face_depths, 0.05)
-            ]
-        sample_limit = 16000 if part.component_kind == "casing" else 3000
+        candidate_indices = _assembly_candidate_face_indices(
+            part.component_kind,
+            vertex_depth,
+            part.faces,
+        )
+        if part.component_kind == "casing":
+            sample_limit = 16000
+        elif part.component_kind == "drum":
+            sample_limit = 10000
+        else:
+            sample_limit = 3000
         sample_count = min(candidate_indices.size, sample_limit)
         sample_offsets = np.linspace(0, candidate_indices.size - 1, sample_count, dtype=int)
         face_indices = candidate_indices[sample_offsets]
@@ -417,6 +433,20 @@ def _assembly_figure(stl_root: Path) -> bytes:
         draw.text((910, y + 5), part.name, fill="#263642", font=font)
     draw.text((110, 392), "Simplified physical assembly view", fill="#48606D", font=font)
     return _png_bytes(image)
+
+
+def _assembly_candidate_face_indices(
+    component_kind: str,
+    vertex_depth: np.ndarray,
+    faces: np.ndarray,
+) -> np.ndarray:
+    """Select a deterministic half-drum cutaway or all faces for other parts."""
+
+    candidate_indices = np.arange(faces.shape[0])
+    if component_kind != "drum":
+        return candidate_indices
+    face_depths = vertex_depth[faces].mean(axis=1)
+    return candidate_indices[face_depths <= np.quantile(face_depths, 0.50)]
 
 
 def _orthographic_z_up_projection(vertices: np.ndarray) -> tuple[np.ndarray, np.ndarray]:

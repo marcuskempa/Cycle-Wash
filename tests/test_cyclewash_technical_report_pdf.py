@@ -18,6 +18,7 @@ from cyclewash_technical_report import LIMITATIONS_NOTE, build_report_document, 
 from cyclewash_technical_report_pdf import (
     PDF_REPORT_SCHEMA_VERSION,
     _assembly_figure,
+    _assembly_candidate_face_indices,
     _paint_triangles_far_to_near,
     _report_styles,
     build_report_pdf,
@@ -143,8 +144,13 @@ class CycleWashTechnicalReportPdfTests(unittest.TestCase):
     def test_pdf_fingerprint_is_schema_versioned_sha256(self) -> None:
         fingerprint = pdf_report_fingerprint()
         renderer_source = Path(pdf_report_fingerprint.__code__.co_filename).read_bytes()
+        report_source = Path(build_report_document.__code__.co_filename).read_bytes()
         expected = hashlib.sha256(
-            PDF_REPORT_SCHEMA_VERSION.encode("utf-8") + b"\0" + renderer_source
+            PDF_REPORT_SCHEMA_VERSION.encode("utf-8")
+            + b"\0"
+            + renderer_source
+            + b"\0"
+            + report_source
         ).hexdigest()
 
         self.assertEqual(64, len(fingerprint))
@@ -156,6 +162,15 @@ class CycleWashTechnicalReportPdfTests(unittest.TestCase):
             "cyclewash-pdf-v2",
         ):
             self.assertNotEqual(fingerprint, pdf_report_fingerprint())
+
+    def test_drum_cutaway_retains_a_recognizable_fraction_of_faces(self) -> None:
+        vertex_depth = np.linspace(-1.0, 1.0, 300)
+        faces = np.arange(300, dtype=int).reshape(100, 3)
+
+        selected = _assembly_candidate_face_indices("drum", vertex_depth, faces)
+
+        self.assertGreaterEqual(selected.size, int(faces.shape[0] * 0.45))
+        self.assertLessEqual(selected.size, int(faces.shape[0] * 0.60))
 
     def test_assembly_raster_is_deterministic_colored_and_outline_free(self) -> None:
         first_png = _assembly_figure(PROJECT_ROOT)

@@ -63,7 +63,23 @@ class CycleWashTechnicalEvaluationAppTests(unittest.TestCase):
 
         parameter_names = tuple(inspect.signature(_cached_viewer_html).parameters)
         self.assertEqual(
-            ("selected_name", "fea_root", "stl_root", "asset_fingerprint"),
+            (
+                "selected_name",
+                "fea_root",
+                "stl_root",
+                "asset_fingerprint",
+                "report_fingerprint",
+            ),
+            parameter_names,
+        )
+
+    def test_report_document_cache_accepts_report_fingerprint(self) -> None:
+        import inspect
+        from cyclewash_technical_evaluation_app import _cached_report_document
+
+        parameter_names = tuple(inspect.signature(_cached_report_document).parameters)
+        self.assertEqual(
+            ("selected_name", "fea_root", "report_fingerprint"),
             parameter_names,
         )
 
@@ -73,7 +89,13 @@ class CycleWashTechnicalEvaluationAppTests(unittest.TestCase):
 
         parameter_names = tuple(inspect.signature(_cached_html_bytes).parameters)
         self.assertEqual(
-            ("selected_name", "fea_root", "stl_root", "asset_fingerprint"),
+            (
+                "selected_name",
+                "fea_root",
+                "stl_root",
+                "asset_fingerprint",
+                "report_fingerprint",
+            ),
             parameter_names,
         )
 
@@ -92,7 +114,11 @@ class CycleWashTechnicalEvaluationAppTests(unittest.TestCase):
 
         app_module._cached_pdf_bytes.clear()
         with (
-            patch.object(app_module, "_cached_report_document", return_value=object()),
+            patch.object(
+                app_module,
+                "_cached_report_document",
+                return_value=object(),
+            ) as build_document,
             patch.object(
                 app_module,
                 "build_report_pdf",
@@ -107,6 +133,10 @@ class CycleWashTechnicalEvaluationAppTests(unittest.TestCase):
         self.assertEqual(first, repeated)
         self.assertEqual(b"report-v2", changed)
         self.assertEqual(2, build_pdf.call_count)
+        self.assertEqual(
+            [call("Normal", "fea", "hash-a"), call("Normal", "fea", "hash-b")],
+            build_document.call_args_list,
+        )
 
     def test_offline_html_cache_rebuilds_when_asset_fingerprint_changes(self) -> None:
         import cyclewash_technical_evaluation_app as app_module
@@ -120,9 +150,9 @@ class CycleWashTechnicalEvaluationAppTests(unittest.TestCase):
                 side_effect=(b"asset-v1", b"asset-v2"),
             ) as build_html,
         ):
-            first = app_module._cached_html_bytes("Normal", "fea", "stl", "hash-a")
-            repeated = app_module._cached_html_bytes("Normal", "fea", "stl", "hash-a")
-            changed = app_module._cached_html_bytes("Normal", "fea", "stl", "hash-b")
+            first = app_module._cached_html_bytes("Normal", "fea", "stl", "hash-a", "report")
+            repeated = app_module._cached_html_bytes("Normal", "fea", "stl", "hash-a", "report")
+            changed = app_module._cached_html_bytes("Normal", "fea", "stl", "hash-b", "report")
 
         self.assertEqual(b"asset-v1", first)
         self.assertEqual(first, repeated)

@@ -37,9 +37,15 @@ LATEX_DISPLAY_BREAK = re.compile(r",\s*\\(?:qquad|quad)\s*")
 
 
 @st.cache_data(show_spinner=False)
-def _cached_report_document(selected_name: str, fea_root: str) -> ReportDocument:
+def _cached_report_document(
+    selected_name: str,
+    fea_root: str,
+    report_fingerprint: str,
+) -> ReportDocument:
     """Load the immutable report data and any exact cached FEA summary."""
 
+    if not report_fingerprint:
+        raise ValueError("report_fingerprint must not be empty")
     return build_report_document(selected_name, fea_root)
 
 
@@ -49,12 +55,13 @@ def _cached_viewer_html(
     fea_root: str,
     stl_root: str,
     asset_fingerprint: str,
+    report_fingerprint: str,
 ) -> str:
     """Cache STL parsing and HTML by scenario and embedded asset version."""
 
     if not asset_fingerprint:
         raise ValueError("asset_fingerprint must not be empty")
-    document = _cached_report_document(selected_name, fea_root)
+    document = _cached_report_document(selected_name, fea_root, report_fingerprint)
     return build_scenario_viewer_html(document, selected_name, stl_root)
 
 
@@ -69,7 +76,7 @@ def _cached_pdf_bytes(
 
     if not report_fingerprint:
         raise ValueError("report_fingerprint must not be empty")
-    document = _cached_report_document(selected_name, fea_root)
+    document = _cached_report_document(selected_name, fea_root, report_fingerprint)
     return build_report_pdf(document, stl_root)
 
 
@@ -79,12 +86,13 @@ def _cached_html_bytes(
     fea_root: str,
     stl_root: str,
     asset_fingerprint: str,
+    report_fingerprint: str,
 ) -> bytes:
     """Cache offline report bytes by scenario and embedded asset version."""
 
     if not asset_fingerprint:
         raise ValueError("asset_fingerprint must not be empty")
-    document = _cached_report_document(selected_name, fea_root)
+    document = _cached_report_document(selected_name, fea_root, report_fingerprint)
     return build_offline_report_html(document, stl_root)
 
 
@@ -198,6 +206,7 @@ def _render_downloads(
             fea_root,
             stl_root,
             asset_fingerprint,
+            report_fingerprint,
         )
     except (OSError, RuntimeError, TypeError, ValueError):
         st.error(
@@ -244,12 +253,13 @@ def main() -> None:
     try:
         viewer_version = viewer_asset_fingerprint()
         report_version = pdf_report_fingerprint()
-        document = _cached_report_document(selected_name, fea_root)
+        document = _cached_report_document(selected_name, fea_root, report_version)
         viewer_html = _cached_viewer_html(
             selected_name,
             fea_root,
             stl_root,
             viewer_version,
+            report_version,
         )
     except (OSError, RuntimeError, TypeError, ValueError):
         st.error(
