@@ -7,6 +7,7 @@ from dataclasses import replace
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -96,7 +97,7 @@ class CycleWashTechnicalReportHtmlTests(unittest.TestCase):
         self.assertTrue(self.html.startswith("<!doctype html>"))
         self.assertIn("CycleWash Technical Evaluation", self.html)
         self.assertIn("OrbitControls", self.html)
-        self.assertIn("Relative analytical load", self.html)
+        self.assertIn("Phase-resolved analytical load map", self.html)
         self.assertIn("Scenario comparison", self.html)
         self.assertIn("Limitations", self.html)
         self.assertIn("Conclusion", self.html)
@@ -109,6 +110,33 @@ class CycleWashTechnicalReportHtmlTests(unittest.TestCase):
             self.assertIn(formula.evaluated, self.html)
             self.assertIn("Symbol", self.html)
             self.assertIn("Evaluated substitution", self.html)
+
+    def test_payload_and_runtime_expose_phase_resolved_analytical_loads(self) -> None:
+        payload = _payload_from_html(self.html)
+        required_inputs = (
+            "shaft_static_bending_pa",
+            "shaft_imbalance_bending_pa",
+            "shaft_torsional_shear_pa",
+            "hydrostatic_pressure_pa",
+            "centrifugal_pressure_pa",
+            "design_pressure_pa",
+            "slosh_amplification",
+        )
+
+        for scenario in payload["scenarios"].values():
+            for field in required_inputs:
+                value = float(scenario[field])
+                self.assertTrue(math.isfinite(value), field)
+                self.assertGreater(value, 0.0, field)
+            self.assertGreater(scenario["shaft_torsional_shear_pa"], 0.0)
+            self.assertGreater(scenario["design_pressure_pa"], 0.0)
+
+        self.assertNotIn("animation color only", self.html)
+        self.assertNotIn("material.color.setHSL", self.html)
+        self.assertIn('geometry.setAttribute("color"', self.html)
+        self.assertIn("updateAnalyticalLoadFields", self.html)
+        self.assertIn("stressLegend", self.html)
+        self.assertIn("pressureLegend", self.html)
 
     def test_embedded_viewer_only_exposes_animation_controls(self) -> None:
         from cyclewash_technical_report_html import build_scenario_viewer_html

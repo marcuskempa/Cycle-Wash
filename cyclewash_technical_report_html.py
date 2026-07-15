@@ -6,6 +6,7 @@ from dataclasses import asdict, is_dataclass
 import hashlib
 import html
 import json
+import math
 from pathlib import Path
 from typing import Any, Final
 
@@ -221,6 +222,11 @@ def _scenario_payload(report: Any) -> dict[str, Any]:
     scenario = report.scenario
     results = report.results
     analytical = results.analytical
+    imbalance_bending_pa = (
+        32.0
+        * results.imbalance_moment_n_m
+        / (math.pi * results.inputs.shaft_diameter_m**3)
+    )
     return {
         "name": scenario.name,
         "rpm": float(scenario.speed_rpm),
@@ -236,6 +242,13 @@ def _scenario_payload(report: Any) -> dict[str, Any]:
         "water_mass_kg": float(analytical.retained_water_mass_kg),
         "drum_radius_m": float(results.inputs.drum_radius_m),
         "drum_depth_m": float(results.inputs.drum_depth_m),
+        "shaft_static_bending_pa": float(analytical.shaft_bending_stress_pa),
+        "shaft_imbalance_bending_pa": float(imbalance_bending_pa),
+        "shaft_torsional_shear_pa": float(analytical.shaft_torsional_shear_pa),
+        "hydrostatic_pressure_pa": float(analytical.hydrostatic_pressure_pa),
+        "centrifugal_pressure_pa": float(analytical.centrifugal_pressure_pa),
+        "design_pressure_pa": float(analytical.design_water_pressure_pa),
+        "slosh_amplification": float(results.inputs.slosh_amplification),
         "provenance": report.provenance,
         "fea_provenance": report.fea_provenance,
     }
