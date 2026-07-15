@@ -122,3 +122,15 @@ A4 pages.
   fixture proving that the nearer triangle wins.
 - Equation leading, padding, and subsection clearance were increased; redundant
   formula-block spacer height was removed to retain the two-page layout.
+
+## P2 Test Defect Follow-Up
+
+The gray-enclosure coverage predicate now intersects its RGB range with the
+existing schematic `non_background` mask, so the `#F7FAFB` figure background
+cannot satisfy the enclosure assertion.
+
+```text
+.\.venv\Scripts\python.exe -m unittest tests.test_cyclewash_technical_report_pdf tests.test_cyclewash_technical_evaluation_app
+Ran 24 tests in 6.463s
+OK
+```

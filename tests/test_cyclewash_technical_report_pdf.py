@@ -170,7 +170,7 @@ class CycleWashTechnicalReportPdfTests(unittest.TestCase):
         self.assertEqual(first_png, second_png)
         self.assertGreater(non_background.sum(), schematic.shape[0] * schematic.shape[1] * 0.12)
         self.assertGreater(
-            ((red >= 135) & (green >= 150) & (blue >= 155)).sum(),
+            (non_background & (red >= 135) & (green >= 150) & (blue >= 155)).sum(),
             500,
         )
         self.assertGreater(((green >= 85) & (green > red * 1.2) & (green > blue * 1.1)).sum(), 250)
