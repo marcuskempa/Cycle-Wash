@@ -3,13 +3,23 @@
 from __future__ import annotations
 
 import base64
+from io import BytesIO
 from pathlib import Path
 import re
 import unittest
+from unittest.mock import patch
 import zlib
 
+import numpy as np
+from PIL import Image
+
 from cyclewash_technical_report import LIMITATIONS_NOTE, build_report_document, core_formulas
-from cyclewash_technical_report_pdf import build_report_pdf
+from cyclewash_technical_report_pdf import (
+    PDF_REPORT_SCHEMA_VERSION,
+    _assembly_figure,
+    build_report_pdf,
+    pdf_report_fingerprint,
+)
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -126,6 +136,39 @@ class CycleWashTechnicalReportPdfTests(unittest.TestCase):
 
         self.assertEqual(first_pdf, second_pdf)
         self.assertEqual(1, len(re.findall(rb"/Subtype\s*/Image\b", first_pdf)))
+
+    def test_pdf_fingerprint_is_schema_versioned_sha256(self) -> None:
+        fingerprint = pdf_report_fingerprint()
+
+        self.assertEqual(64, len(fingerprint))
+        self.assertRegex(fingerprint, r"^[0-9a-f]{64}$")
+        self.assertTrue(PDF_REPORT_SCHEMA_VERSION)
+        with patch(
+            "cyclewash_technical_report_pdf.PDF_REPORT_SCHEMA_VERSION",
+            "cyclewash-pdf-v2",
+        ):
+            self.assertNotEqual(fingerprint, pdf_report_fingerprint())
+
+    def test_assembly_raster_is_deterministic_colored_and_outline_free(self) -> None:
+        first_png = _assembly_figure(PROJECT_ROOT)
+        second_png = _assembly_figure(PROJECT_ROOT)
+        pixels = np.asarray(Image.open(BytesIO(first_png)).convert("RGB"))
+        schematic = pixels[40:380, 90:830]
+        background = np.array([247, 250, 251])
+        non_background = np.any(schematic != background, axis=2)
+        white = np.all(schematic == 255, axis=2)
+        red, green, blue = (pixels[:, :, index] for index in range(3))
+
+        self.assertEqual(first_png, second_png)
+        self.assertGreater(non_background.sum(), schematic.shape[0] * schematic.shape[1] * 0.12)
+        self.assertGreater(
+            ((red >= 135) & (green >= 150) & (blue >= 155)).sum(),
+            500,
+        )
+        self.assertGreater(((green >= 85) & (green > red * 1.2) & (green > blue * 1.1)).sum(), 250)
+        self.assertGreater(((red >= 130) & (red > green * 1.3) & (red > blue * 1.3)).sum(), 100)
+        self.assertGreater(((red >= 170) & (green >= 100) & (blue <= 90)).sum(), 100)
+        self.assertLess(white.sum(), schematic.shape[0] * schematic.shape[1] * 0.01)
 
     def test_page_one_is_concise_and_pdf_states_provenance_once(self) -> None:
         from cyclewash_technical_report_pdf import (

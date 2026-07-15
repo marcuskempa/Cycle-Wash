@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from hashlib import sha256
 from io import BytesIO
 from pathlib import Path
 from typing import Iterable
@@ -40,6 +41,7 @@ CONTENT_WIDTH = PAGE_WIDTH - 2 * MARGIN
 DARK_BLUE = colors.HexColor("#123047")
 GREEN = colors.HexColor("#1A6B57")
 PALE_BLUE = colors.HexColor("#EAF1F5")
+PDF_REPORT_SCHEMA_VERSION = "cyclewash-pdf-v1"
 
 _ASSEMBLY_FILES = (
     ("Enclosure", "enclosure.stl", "#6F8795", "casing"),
@@ -47,6 +49,14 @@ _ASSEMBLY_FILES = (
     ("Shaft", "shaft.stl", "#B6403B", "shaft"),
     ("Gear", "gear.stl", "#D99B33", "gear"),
 )
+
+
+def pdf_report_fingerprint() -> str:
+    """Return a cache key for the PDF schema and renderer implementation."""
+
+    source_bytes = Path(__file__).read_bytes()
+    payload = PDF_REPORT_SCHEMA_VERSION.encode("utf-8") + b"\0" + source_bytes
+    return sha256(payload).hexdigest()
 
 
 def build_report_pdf(document: ReportDocument, stl_root: str | Path) -> bytes:
@@ -361,26 +371,36 @@ def _assembly_figure(stl_root: Path) -> bytes:
         )
         parts.append(normalize_stl_part(part).part)
     image = PillowImage.new("RGB", (1100, 430), "white")
-    draw = ImageDraw.Draw(image)
+    draw = ImageDraw.Draw(image, "RGBA")
     draw.rectangle((0, 0, 1099, 429), fill="#F7FAFB")
     all_vertices = np.concatenate([part.vertices for part in parts], axis=0)
-    projected = _isometric_projection(all_vertices)
+    projected, _ = _orthographic_z_up_projection(all_vertices)
     minimum = projected.min(axis=0)
-    span = np.maximum(projected.max(axis=0) - minimum, 1e-9)
+    span = projected.max(axis=0) - minimum
+    if not np.isfinite(projected).all() or np.any(span <= 0):
+        raise ValueError("assembly STL vertices must have a finite projected span")
+    scale = min(710 / span[0], 315 / span[1])
+    offset = np.array(((710 - span[0] * scale) / 2, (315 - span[1] * scale) / 2))
 
     def project(vertices: np.ndarray) -> np.ndarray:
-        points = _isometric_projection(vertices)
-        normalized = (points - minimum) / span
-        return np.column_stack((110 + normalized[:, 0] * 710, 370 - normalized[:, 1] * 315))
+        points, _ = _orthographic_z_up_projection(vertices)
+        projected_points = (points - minimum) * scale + offset
+        return np.column_stack((110 + projected_points[:, 0], 370 - projected_points[:, 1]))
 
-    for part in parts:
+    triangles: list[tuple[float, int, int, np.ndarray, tuple[int, int, int, int]]] = []
+    for part_index, part in enumerate(parts):
         coordinates = project(part.vertices)
-        sample_count = min(part.faces.shape[0], 650)
+        _, vertex_depth = _orthographic_z_up_projection(part.vertices)
+        sample_count = min(part.faces.shape[0], 16000)
         face_indices = np.linspace(0, part.faces.shape[0] - 1, sample_count, dtype=int)
-        fill = part.material_color
-        for face in part.faces[face_indices]:
-            points = [tuple(point) for point in coordinates[face]]
-            draw.polygon(points, fill=fill, outline="#FFFFFF")
+        fill = _assembly_fill(part.component_kind, part.material_color)
+        for face_index in face_indices:
+            face = part.faces[face_index]
+            triangles.append(
+                (float(vertex_depth[face].mean()), part_index, int(face_index), coordinates[face], fill)
+            )
+    for _, _, _, triangle, fill in sorted(triangles, key=lambda item: item[:3]):
+        draw.polygon([tuple(point) for point in triangle], fill=fill)
     font = ImageFont.load_default()
     draw.rectangle((855, 52, 1060, 338), fill="#FFFFFF", outline="#BFCED6", width=2)
     draw.text((877, 72), "STL display key", fill="#123047", font=font)
@@ -392,13 +412,26 @@ def _assembly_figure(stl_root: Path) -> bytes:
     return _png_bytes(image)
 
 
-def _isometric_projection(vertices: np.ndarray) -> np.ndarray:
-    return np.column_stack(
-        (
-            vertices[:, 0] - 0.62 * vertices[:, 1],
-            vertices[:, 2] + 0.34 * vertices[:, 0] + 0.24 * vertices[:, 1],
-        )
+def _orthographic_z_up_projection(vertices: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Project the Blender Z-up assembly from the viewer's +X/-Y camera direction."""
+
+    vertices = np.asarray(vertices, dtype=float)
+    if vertices.ndim != 2 or vertices.shape[1] != 3 or not np.isfinite(vertices).all():
+        raise ValueError("assembly STL vertices must be finite XYZ coordinates")
+    camera_direction = np.array((1.15, -0.92, 0.82))
+    camera_direction /= np.linalg.norm(camera_direction)
+    screen_x = np.cross(np.array((0.0, 0.0, 1.0)), camera_direction)
+    screen_x /= np.linalg.norm(screen_x)
+    screen_y = np.cross(camera_direction, screen_x)
+    return (
+        np.column_stack((vertices @ screen_x, vertices @ screen_y)),
+        vertices @ camera_direction,
     )
+
+
+def _assembly_fill(component_kind: str, material_color: str) -> tuple[int, int, int, int]:
+    rgb = tuple(int(material_color[index : index + 2], 16) for index in (1, 3, 5))
+    return (*rgb, 150 if component_kind == "casing" else 255)
 
 
 def _png_bytes(image: PillowImage.Image) -> bytes:
@@ -418,4 +451,4 @@ def _footer(canvas, doc) -> None:
     canvas.restoreState()
 
 
-__all__ = ["build_report_pdf"]
+__all__ = ["PDF_REPORT_SCHEMA_VERSION", "build_report_pdf", "pdf_report_fingerprint"]

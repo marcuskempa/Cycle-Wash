@@ -28,7 +28,7 @@ from cyclewash_technical_report_html import (
     build_scenario_viewer_html,
     viewer_asset_fingerprint,
 )
-from cyclewash_technical_report_pdf import build_report_pdf
+from cyclewash_technical_report_pdf import build_report_pdf, pdf_report_fingerprint
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -59,9 +59,16 @@ def _cached_viewer_html(
 
 
 @st.cache_data(show_spinner=False)
-def _cached_pdf_bytes(selected_name: str, fea_root: str, stl_root: str) -> bytes:
+def _cached_pdf_bytes(
+    selected_name: str,
+    fea_root: str,
+    stl_root: str,
+    report_fingerprint: str,
+) -> bytes:
     """Cache printable report bytes for the selected fixed scenario."""
 
+    if not report_fingerprint:
+        raise ValueError("report_fingerprint must not be empty")
     document = _cached_report_document(selected_name, fea_root)
     return build_report_pdf(document, stl_root)
 
@@ -177,9 +184,15 @@ def _render_downloads(
     fea_root: str,
     stl_root: str,
     asset_fingerprint: str,
+    report_fingerprint: str,
 ) -> None:
     try:
-        pdf_bytes = _cached_pdf_bytes(selected_name, fea_root, stl_root)
+        pdf_bytes = _cached_pdf_bytes(
+            selected_name,
+            fea_root,
+            stl_root,
+            report_fingerprint,
+        )
         html_bytes = _cached_html_bytes(
             selected_name,
             fea_root,
@@ -230,6 +243,7 @@ def main() -> None:
     fea_root = str(PROJECT_ROOT / "fea_results")
     try:
         viewer_version = viewer_asset_fingerprint()
+        report_version = pdf_report_fingerprint()
         document = _cached_report_document(selected_name, fea_root)
         viewer_html = _cached_viewer_html(
             selected_name,
@@ -251,7 +265,13 @@ def main() -> None:
         _render_formula(formula)
     _render_comparison(document)
     st.info(LIMITATIONS_NOTE)
-    _render_downloads(selected_name, fea_root, stl_root, viewer_version)
+    _render_downloads(
+        selected_name,
+        fea_root,
+        stl_root,
+        viewer_version,
+        report_version,
+    )
 
 
 if __name__ == "__main__":

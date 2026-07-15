@@ -77,6 +77,37 @@ class CycleWashTechnicalEvaluationAppTests(unittest.TestCase):
             parameter_names,
         )
 
+    def test_pdf_cache_accepts_report_fingerprint(self) -> None:
+        import inspect
+        from cyclewash_technical_evaluation_app import _cached_pdf_bytes
+
+        parameter_names = tuple(inspect.signature(_cached_pdf_bytes).parameters)
+        self.assertEqual(
+            ("selected_name", "fea_root", "stl_root", "report_fingerprint"),
+            parameter_names,
+        )
+
+    def test_pdf_cache_rebuilds_when_report_fingerprint_changes(self) -> None:
+        import cyclewash_technical_evaluation_app as app_module
+
+        app_module._cached_pdf_bytes.clear()
+        with (
+            patch.object(app_module, "_cached_report_document", return_value=object()),
+            patch.object(
+                app_module,
+                "build_report_pdf",
+                side_effect=(b"report-v1", b"report-v2"),
+            ) as build_pdf,
+        ):
+            first = app_module._cached_pdf_bytes("Normal", "fea", "stl", "hash-a")
+            repeated = app_module._cached_pdf_bytes("Normal", "fea", "stl", "hash-a")
+            changed = app_module._cached_pdf_bytes("Normal", "fea", "stl", "hash-b")
+
+        self.assertEqual(b"report-v1", first)
+        self.assertEqual(first, repeated)
+        self.assertEqual(b"report-v2", changed)
+        self.assertEqual(2, build_pdf.call_count)
+
     def test_offline_html_cache_rebuilds_when_asset_fingerprint_changes(self) -> None:
         import cyclewash_technical_evaluation_app as app_module
 
