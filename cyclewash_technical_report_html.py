@@ -315,16 +315,11 @@ def _render_report(document: ReportDocument) -> str:
 
 
 def _formula_html(formula: FormulaDefinition) -> str:
-    symbols = "".join(
-        f"<li><strong>{_text(symbol.symbol)}</strong>: {_text(symbol.meaning)} [{_text(symbol.unit)}]</li>"
-        for symbol in formula.symbols
-    )
     return f"""
 <section class="formula" aria-labelledby="formula-{_text(formula.identifier)}">
   <h3 id="formula-{_text(formula.identifier)}">{_text(formula.title)}</h3>
   <div class="equation" aria-label="{_text(formula.latex)}">{formula.html}</div>
-  <p><strong>Evaluated substitution:</strong> {_text(formula.evaluated)}</p>
-  <ul>{symbols}</ul>
+  <div class="equation" aria-label="{_text(formula.evaluated_latex)}">{formula.evaluated_html}</div>
 </section>"""
 
 

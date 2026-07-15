@@ -124,6 +124,16 @@ class CycleWashTechnicalReportTests(unittest.TestCase):
         self.assertEqual(4, len(formulas))
         self.assertIn("not validated structural FEA or CFD", LIMITATIONS_NOTE)
 
+    def test_core_formulas_include_compact_evaluated_equations(self) -> None:
+        from cyclewash_technical_report import core_formulas
+
+        document = build_report_document("Normal")
+
+        for formula in core_formulas(document):
+            with self.subTest(formula=formula.identifier):
+                self.assertTrue(formula.evaluated_latex)
+                self.assertTrue(formula.evaluated_html)
+
     def test_default_cache_is_not_attached_to_gentle_or_heavy_reports(self) -> None:
         project_root = Path(__file__).resolve().parents[1]
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import unittest
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -130,6 +130,25 @@ class CycleWashTechnicalEvaluationAppTests(unittest.TestCase):
                 self.assertTrue(all(r"\qquad" not in display for display in displays))
                 self.assertTrue(all(r"\quad" not in display for display in displays))
                 self.assertLessEqual(max(map(len, displays)), 80)
+
+    def test_formula_renderer_displays_paired_equations_without_tutorial_labels(self) -> None:
+        import cyclewash_technical_evaluation_app as app_module
+        from cyclewash_technical_report import build_report_document, core_formulas
+
+        formula = core_formulas(build_report_document("Normal"))[0]
+        source = Path(app_module.__file__).read_text(encoding="utf-8")
+        with (
+            patch.object(app_module.st, "subheader"),
+            patch.object(app_module, "_render_latex") as render_latex,
+        ):
+            app_module._render_formula(formula)
+
+        self.assertEqual(
+            [call(formula.latex), call(formula.evaluated_latex)],
+            render_latex.call_args_list,
+        )
+        self.assertNotIn("Variables:", source)
+        self.assertNotIn("Evaluated:", source)
 
     def test_all_three_page_entrypoints_run_without_exceptions(self) -> None:
         from streamlit.testing.v1 import AppTest

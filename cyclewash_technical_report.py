@@ -59,6 +59,8 @@ class FormulaDefinition:
     evaluated: str
     symbols: tuple[SymbolDefinition, ...]
     explanation: str
+    evaluated_latex: str = ""
+    evaluated_html: str = ""
 
 
 @dataclass(frozen=True)
@@ -300,6 +302,21 @@ def _formula_catalogue(
                 _symbol("T_r,ideal", "ideal non-integer rear sprocket tooth count", "teeth", "calculated drivetrain value"),
             ),
             "The chain ratio converts pedal cadence to a practical drum speed. The selected integer rear sprocket can differ slightly from the fixed target; analytical scenario calculations use N_d,target, while N_d,practical reports the buildable drivetrain outcome.",
+            evaluated_latex=(
+                rf"N_{{d,\mathrm{{practical}}}} = ({drivetrain.pedal_rpm:.1f}\ \mathrm{{RPM}})"
+                rf"({drivetrain.front_teeth:d}/{drivetrain.practical_rear_teeth:d}) = "
+                rf"{drivetrain.actual_drum_rpm:.3f}\ \mathrm{{RPM}}, \qquad "
+                rf"T_{{r,\mathrm{{ideal}}}} = ({drivetrain.front_teeth:d})"
+                rf"({drivetrain.pedal_rpm:.1f}\ \mathrm{{RPM}}/{scenario.speed_rpm:.3f}\ \mathrm{{RPM}}) = "
+                rf"{drivetrain.exact_rear_teeth:.3f}"
+            ),
+            evaluated_html=(
+                "<div>N<sub>d,practical</sub> = "
+                f"({drivetrain.pedal_rpm:.1f} RPM)({drivetrain.front_teeth:d}/{drivetrain.practical_rear_teeth:d}) = "
+                f"{drivetrain.actual_drum_rpm:.3f} RPM; T<sub>r,ideal</sub> = "
+                f"({drivetrain.front_teeth:d})({drivetrain.pedal_rpm:.1f} RPM/{scenario.speed_rpm:.3f} RPM) = "
+                f"{drivetrain.exact_rear_teeth:.3f}</div>"
+            ),
         ),
         FormulaDefinition(
             "angular_speed_and_edge_velocity",
@@ -317,6 +334,19 @@ def _formula_catalogue(
                 _symbol("v_edge", "drum-edge tangential velocity", "m/s", "calculated value"),
             ),
             "The fixed target scenario speed is converted to angular speed before calculating drum-edge velocity as a transparent wash-agitation indicator. It is not a CFD prediction of the water or fabric velocity field.",
+            evaluated_latex=(
+                rf"\omega = 2\pi({scenario.speed_rpm:.3f}\ \mathrm{{rev/min}})"
+                rf"(1\ \mathrm{{min}}/60\ \mathrm{{s}}) = {analytical.angular_speed_rad_s:.4f}\ \mathrm{{rad/s}}, "
+                rf"\qquad v_{{edge}} = ({analytical.angular_speed_rad_s:.4f}\ \mathrm{{rad/s}})"
+                rf"({inputs.drum_radius_m:.3f}\ \mathrm{{m}}) = "
+                rf"{analytical.angular_speed_rad_s * inputs.drum_radius_m:.4f}\ \mathrm{{m/s}}"
+            ),
+            evaluated_html=(
+                "<div>&omega; = 2&pi;"
+                f"({scenario.speed_rpm:.3f} rev/min)(1 min/60 s) = {analytical.angular_speed_rad_s:.4f} rad/s; "
+                f"v<sub>edge</sub> = ({analytical.angular_speed_rad_s:.4f} rad/s)"
+                f"({inputs.drum_radius_m:.3f} m) = {analytical.angular_speed_rad_s * inputs.drum_radius_m:.4f} m/s</div>"
+            ),
         ),
         FormulaDefinition(
             "human_power_torque_and_chain_force",
@@ -400,9 +430,9 @@ def _formula_catalogue(
         FormulaDefinition(
             "unbalanced_wet_laundry_load",
             "Unbalanced Wet-Laundry Load",
-            r"F_u=m_ue\omega^2, \qquad F_y(\theta)=F_u\cos(\theta), \qquad F_z(\theta)=F_u\sin(\theta), \qquad \theta(t)=\omega t+\theta_0",
-            "<div>F<sub>u</sub> = m<sub>u</sub>e&omega;<sup>2</sup>; F<sub>y</sub>(&theta;) = F<sub>u</sub>cos(&theta;); "
-            "F<sub>z</sub>(&theta;) = F<sub>u</sub>sin(&theta;); &theta;(t) = &omega;t + &theta;<sub>0</sub></div>",
+            r"F_u=m_ue\omega^2, \qquad F_y=F_u\cos(\theta), \qquad F_z=F_u\sin(\theta)",
+            "<div>F<sub>u</sub> = m<sub>u</sub>e&omega;<sup>2</sup>; F<sub>y</sub> = F<sub>u</sub>cos(&theta;); "
+            "F<sub>z</sub> = F<sub>u</sub>sin(&theta;)</div>",
             f"F_u = ({scenario.laundry_mass_kg:.3f} kg) x ({scenario.eccentricity_m:.3f} m) x "
             f"({analytical.angular_speed_rad_s:.4f} rad/s)^2 = {results.imbalance_force_n:.3f} N; "
             f"theta(0.000 s) = ({analytical.angular_speed_rad_s:.4f} rad/s) x (0.000 s) + (0.000 rad) = "
@@ -421,6 +451,17 @@ def _formula_catalogue(
                 _symbol("theta_0", "initial phase angle", "rad", "animation state"),
             ),
             "The unbalanced force rotates with the drum, creating cyclic bearing and shaft loading. Its direction changes with phase even though its magnitude remains constant in this model.",
+            evaluated_latex=(
+                rf"F_u = ({scenario.laundry_mass_kg:.3f}\ \mathrm{{kg}})"
+                rf"({scenario.eccentricity_m:.3f}\ \mathrm{{m}})"
+                rf"({analytical.angular_speed_rad_s:.4f}\ \mathrm{{rad/s}})^2 = "
+                rf"{results.imbalance_force_n:.3f}\ \mathrm{{N}}"
+            ),
+            evaluated_html=(
+                "<div>F<sub>u</sub> = "
+                f"({scenario.laundry_mass_kg:.3f} kg)({scenario.eccentricity_m:.3f} m)"
+                f"({analytical.angular_speed_rad_s:.4f} rad/s)<sup>2</sup> = {results.imbalance_force_n:.3f} N</div>"
+            ),
         ),
         FormulaDefinition(
             "shaft_bending_and_torsion",
@@ -476,6 +517,21 @@ def _formula_catalogue(
                 _symbol("S_y", "shaft material yield strength", "Pa", "material property"),
             ),
             "A value above one indicates that this analytical stress estimate is below nominal yield. It does not remove the need to assess fatigue, joints, bearings, defects, and omitted dynamics.",
+            evaluated_latex=(
+                rf"\sigma_{{vm}} = \sqrt{{({results.bending_stress_pa / 1.0e6:.3f}\ \mathrm{{MPa}})^2 + "
+                rf"3({analytical.shaft_torsional_shear_pa / 1.0e6:.3f}\ \mathrm{{MPa}})^2}} = "
+                rf"{results.von_mises_pa / 1.0e6:.3f}\ \mathrm{{MPa}}, \qquad "
+                rf"FoS_y = ({inputs.shaft_material.yield_strength_pa / 1.0e6:.3f}\ \mathrm{{MPa}})"
+                rf"/({results.von_mises_pa / 1.0e6:.3f}\ \mathrm{{MPa}}) = {results.factor_of_safety:.3f}"
+            ),
+            evaluated_html=(
+                "<div>&sigma;<sub>vm</sub> = &radic;("
+                f"({results.bending_stress_pa / 1.0e6:.3f} MPa)<sup>2</sup> + "
+                f"3({analytical.shaft_torsional_shear_pa / 1.0e6:.3f} MPa)<sup>2</sup>) = "
+                f"{results.von_mises_pa / 1.0e6:.3f} MPa; FoS<sub>y</sub> = "
+                f"({inputs.shaft_material.yield_strength_pa / 1.0e6:.3f} MPa)"
+                f"/({results.von_mises_pa / 1.0e6:.3f} MPa) = {results.factor_of_safety:.3f}</div>"
+            ),
         ),
     )
     fea_formulas = (

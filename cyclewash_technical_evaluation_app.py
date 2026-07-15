@@ -140,11 +140,7 @@ def _render_selected_metrics(document: ReportDocument) -> None:
 def _render_formula(formula: FormulaDefinition) -> None:
     st.subheader(formula.title)
     _render_latex(formula.latex)
-    st.caption(formula.evaluated)
-    definitions = "; ".join(
-        f"{symbol.symbol}: {symbol.meaning} [{symbol.unit}]" for symbol in formula.symbols
-    )
-    st.caption(f"Variables: {definitions}")
+    _render_latex(formula.evaluated_latex)
 
 
 def _scenario_comparison_rows(document: ReportDocument) -> tuple[tuple[str, ...], ...]:

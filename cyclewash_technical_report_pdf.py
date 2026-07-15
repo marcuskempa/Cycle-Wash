@@ -273,15 +273,11 @@ def _scenario_table(
 
 
 def _compact_formula_block(formula: FormulaDefinition, styles: dict[str, ParagraphStyle]) -> Flowable:
-    definitions = "; ".join(
-        f"{symbol.symbol}: {symbol.meaning} [{symbol.unit}]" for symbol in formula.symbols
-    )
     return KeepTogether(
         [
             Paragraph(formula.title, styles["subsection"]),
             Paragraph(_equation_markup(formula.html), styles["equation"]),
-            Paragraph(f"<b>Evaluated:</b> {formula.evaluated}", styles["small"]),
-            Paragraph(f"<b>Variables:</b> {definitions}", styles["small"]),
+            Paragraph(_equation_markup(formula.evaluated_html), styles["equation"]),
             Spacer(1, 3),
         ]
     )

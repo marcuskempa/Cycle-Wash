@@ -107,9 +107,11 @@ class CycleWashTechnicalReportHtmlTests(unittest.TestCase):
             self.assertIn(f'id="{control}"', self.html)
         for formula in core_formulas(self.document):
             self.assertIn(formula.title, self.html)
-            self.assertIn(formula.evaluated, self.html)
-            self.assertIn("Symbol", self.html)
-            self.assertIn("Evaluated substitution", self.html)
+            self.assertIn(formula.html, self.html)
+            self.assertIn(formula.evaluated_html, self.html)
+        self.assertNotIn("Evaluated substitution", self.html)
+        self.assertNotIn("Variables:", self.html)
+        self.assertNotIn("<ul>", self.html)
 
     def test_payload_and_runtime_expose_phase_resolved_analytical_loads(self) -> None:
         payload = _payload_from_html(self.html)

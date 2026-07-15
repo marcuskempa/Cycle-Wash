@@ -104,12 +104,19 @@ class CycleWashTechnicalReportPdfTests(unittest.TestCase):
         self.assertEqual(1, len(re.findall(rb"/Subtype\s*/Image\b", pdf_bytes)))
         for formula in core_formulas(self.document):
             self.assertIn(formula.title, report_text)
+        source = Path(build_report_pdf.__code__.co_filename).read_text(encoding="utf-8")
+        self.assertIn(
+            'Paragraph(_equation_markup(formula.evaluated_html), styles["equation"]),',
+            source,
+        )
         self.assertEqual(1, report_text.count(LIMITATIONS_NOTE))
         for removed in (
             "Formula Catalogue",
             "Exact FEA Result And Provenance",
             "Assumptions",
             "Physical Geometry And Drivetrain Configuration",
+            "Variables:",
+            "Evaluated:",
         ):
             self.assertNotIn(removed, report_text)
 
