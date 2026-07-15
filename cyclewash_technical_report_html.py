@@ -29,7 +29,7 @@ THREE_BUNDLE_PATH: Final[Path] = MODULE_DIRECTORY / "assets" / "cyclewash-three-
 MAX_TOTAL_TRIANGLES: Final[int] = 150_000
 MAX_GEOMETRY_BYTES: Final[int] = 4 * 1024 * 1024
 MAX_OFFLINE_HTML_BYTES: Final[int] = 8 * 1024 * 1024
-VIEWER_PAYLOAD_SCHEMA_VERSION: Final[str] = "cyclewash-offline-report-v2"
+VIEWER_PAYLOAD_SCHEMA_VERSION: Final[str] = "cyclewash-offline-report-v3"
 
 def viewer_asset_fingerprint() -> str:
     """Hash every non-Python asset that changes generated viewer HTML."""

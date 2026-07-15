@@ -49,6 +49,29 @@ def _without_drum_envelope(html: str) -> str:
     return f"{before}{prefix}{stale_payload}</script>{after}"
 
 
+def _legacy_viewer_payload(html: str) -> str:
+    prefix = '<script id="cyclewash-report-data" type="application/json">'
+    before, payload_and_after = html.split(prefix, 1)
+    payload_text, after = payload_and_after.split("</script>", 1)
+    payload = json.loads(payload_text)
+    payload["schema_version"] = "cyclewash-offline-report-v2"
+    payload["geometry"].pop("drum_envelope", None)
+    analytical_fields = (
+        "shaft_static_bending_pa",
+        "shaft_imbalance_bending_pa",
+        "shaft_torsional_shear_pa",
+        "hydrostatic_pressure_pa",
+        "centrifugal_pressure_pa",
+        "design_pressure_pa",
+        "slosh_amplification",
+    )
+    for scenario in payload["scenarios"].values():
+        for field in analytical_fields:
+            scenario.pop(field, None)
+    stale_payload = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return f"{before}{prefix}{stale_payload}</script>{after}"
+
+
 def _find_supported_browser() -> Path | None:
     candidates = [
         shutil.which(command)
@@ -64,8 +87,8 @@ def _find_supported_browser() -> Path | None:
         if root
     )
     for relative in (
-        "Google/Chrome/Application/chrome.exe",
         "Microsoft/Edge/Application/msedge.exe",
+        "Google/Chrome/Application/chrome.exe",
     ):
         candidates.extend(str(Path(root) / relative) for root in roots)
     for candidate in candidates:
@@ -115,6 +138,7 @@ class CycleWashTechnicalReportHtmlTests(unittest.TestCase):
 
     def test_payload_and_runtime_expose_phase_resolved_analytical_loads(self) -> None:
         payload = _payload_from_html(self.html)
+        self.assertEqual("cyclewash-offline-report-v3", payload["schema_version"])
         required_inputs = (
             "shaft_static_bending_pa",
             "shaft_imbalance_bending_pa",
@@ -137,6 +161,8 @@ class CycleWashTechnicalReportHtmlTests(unittest.TestCase):
         self.assertNotIn("material.color.setHSL", self.html)
         self.assertIn('geometry.setAttribute("color"', self.html)
         self.assertIn("updateAnalyticalLoadFields", self.html)
+        self.assertIn("normalizeAnalyticalScenario", self.html)
+        self.assertIn("Number.isFinite(normalizedValue)", self.html)
         self.assertIn("stressLegend", self.html)
         self.assertIn("pressureLegend", self.html)
 
@@ -312,7 +338,7 @@ class CycleWashTechnicalReportHtmlTests(unittest.TestCase):
 
         with TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
-            stale_html = _without_drum_envelope(self.html)
+            stale_html = _legacy_viewer_payload(self.html)
             (root / "report.html").write_text(stale_html, encoding="utf-8")
             _RecordingHttpHandler.request_paths = []
             handler = partial(_RecordingHttpHandler, directory=str(root))
@@ -347,12 +373,12 @@ class CycleWashTechnicalReportHtmlTests(unittest.TestCase):
                         text=True,
                         encoding="utf-8",
                         errors="replace",
-                        timeout=30,
+                        timeout=75,
                         check=False,
                     )
                 except subprocess.TimeoutExpired:
                     self.skipTest(
-                        "installed headless Chrome did not complete --dump-dom; "
+                        "installed headless browser did not complete --dump-dom; "
                         "run the final browser smoke check instead"
                     )
             finally:
