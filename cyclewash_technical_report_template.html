@@ -364,6 +364,8 @@ window.CycleWashThree = CycleWashThree;
         3 * Math.pow(selected.shaft_torsional_shear_pa, 2)
       ));
       const pressureCeiling = Math.max(1, selected.design_pressure_pa);
+      const baseHydrostatic = selected.hydrostatic_pressure_pa / Math.max(selected.slosh_amplification, 1);
+      const phaseLobe = Math.max(0, Math.sin(phaseRadians));
       let representativeStressPa = 0;
       let representativePressurePa = 0;
       let hasStressSample = false;
@@ -384,16 +386,16 @@ window.CycleWashThree = CycleWashThree;
       function paintPressureField(mesh) {
         const positions = mesh.geometry.getAttribute("position");
         const colors = mesh.geometry.getAttribute("color");
-        let minZ = Infinity; let maxZ = -Infinity;
         for (let index = 0; index < positions.count; index += 1) {
-          minZ = Math.min(minZ, positions.getZ(index)); maxZ = Math.max(maxZ, positions.getZ(index));
-        }
-        const spanZ = Math.max(maxZ - minZ, Number.EPSILON);
-        for (let index = 0; index < positions.count; index += 1) {
-          const normalizedDepth = Math.max(0, Math.min(1, 1 - (positions.getZ(index) - minZ) / spanZ));
+          const localY = positions.getY(index) - origin.y;
+          const localZ = positions.getZ(index) - origin.z;
+          const worldZ = origin.z + localY * Math.sin(phaseRadians) + localZ * Math.cos(phaseRadians);
+          const normalizedDepth = Math.max(0, Math.min(1, 1 - (worldZ - (drumEnvelope.center_m[2] - drumEnvelope.span_m[2] / 2)) / drumEnvelope.span_m[2]));
+          const localHydro = baseHydrostatic * normalizedDepth;
+          const sloshIncrement = baseHydrostatic * (selected.slosh_amplification - 1) * phaseLobe;
           const pressure = Math.min(
-            pressureCeiling,
-            (selected.hydrostatic_pressure_pa * normalizedDepth + selected.centrifugal_pressure_pa) * selected.slosh_amplification
+            selected.design_pressure_pa,
+            selected.centrifugal_pressure_pa + localHydro + sloshIncrement
           );
           mapAnalyticalColor(pressure / pressureCeiling, colors.array, index * 3);
           if (!hasPressureSample) { representativePressurePa = pressure; hasPressureSample = true; }
@@ -411,10 +413,10 @@ window.CycleWashThree = CycleWashThree;
       stressLegend.textContent = "Shaft / gear: 0-" + (stressRangePa / 1e6).toFixed(2) + " MPa";
       pressureLegend.textContent = "Inner drum: 0-" + (pressureCeiling / 1e3).toFixed(1) + " kPa";
     }
-    function analyticalColorSnapshot() {
-      const mesh = analyticalMeshes.shaft[0] || analyticalMeshes.gear[0];
+    function analyticalColorSnapshot(kind) {
+      const mesh = kind === "drum" ? analyticalMeshes.drum[0] : (analyticalMeshes.shaft[0] || analyticalMeshes.gear[0]);
       const colors = mesh && mesh.geometry.getAttribute("color");
-      return colors ? Array.from(colors.array.slice(0, 3)) : [];
+      return colors ? Array.from(kind === "drum" ? colors.array : colors.array.slice(0, 3)) : [];
     }
     function analyticalFieldSnapshot() {
       return {
@@ -478,14 +480,18 @@ window.CycleWashThree = CycleWashThree;
       playPause.click();
       smokeAssert(playing !== original.playing, "play/pause control did not toggle playback");
       const colorsAtPhaseZero = analyticalColorSnapshot();
+      const drumColorsAtPhaseZero = analyticalColorSnapshot("drum");
       const fieldsAtPhaseZero = analyticalFieldSnapshot();
       phaseSlider.value = "123";
       phaseSlider.dispatchEvent(new Event("input"));
       smokeAssert(phase === 123 && !playing, "phase control did not scrub and pause");
       const colorsAtPhase123 = analyticalColorSnapshot();
+      const drumColorsAtPhase123 = analyticalColorSnapshot("drum");
       const fieldsAtPhase123 = analyticalFieldSnapshot();
       smokeAssert(colorsAtPhaseZero.length === 3 && colorsAtPhase123.length === 3, "analytical vertex colors are missing");
       smokeAssert(colorsAtPhaseZero.some(function (value, index) { return Math.abs(value - colorsAtPhase123[index]) > 1e-6; }), "analytical vertex colors did not change by phase");
+      smokeAssert(drumColorsAtPhaseZero.length > 0 && drumColorsAtPhaseZero.length === drumColorsAtPhase123.length, "drum pressure vertex colors are missing");
+      smokeAssert(drumColorsAtPhaseZero.some(function (value, index) { return Math.abs(value - drumColorsAtPhase123[index]) > 1e-6; }), "drum pressure vertex colors did not change by phase");
       smokeAssert(Math.abs(fieldsAtPhaseZero.stressPa - fieldsAtPhase123.stressPa) > 1e-6, "phase did not change an analytical stress field");
       smokeAssert(Object.values(fieldsAtPhase123).every(Number.isFinite), "analytical legend values are not finite");
       speedSelect.value = "2";

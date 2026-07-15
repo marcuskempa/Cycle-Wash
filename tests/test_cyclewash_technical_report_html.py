@@ -138,6 +138,31 @@ class CycleWashTechnicalReportHtmlTests(unittest.TestCase):
         self.assertIn("stressLegend", self.html)
         self.assertIn("pressureLegend", self.html)
 
+    def test_drum_pressure_uses_world_gravity_and_single_slosh_amplification(
+        self,
+    ) -> None:
+        expected_pressure_contract = (
+            "const localY = positions.getY(index) - origin.y;",
+            "const localZ = positions.getZ(index) - origin.z;",
+            "const worldZ = origin.z + localY * Math.sin(phaseRadians) + localZ * Math.cos(phaseRadians);",
+            "drumEnvelope.center_m[2]",
+            "drumEnvelope.span_m[2]",
+            "const baseHydrostatic = selected.hydrostatic_pressure_pa / Math.max(selected.slosh_amplification, 1);",
+            "const localHydro = baseHydrostatic * normalizedDepth;",
+            "const sloshIncrement = baseHydrostatic * (selected.slosh_amplification - 1) * phaseLobe;",
+            "selected.centrifugal_pressure_pa + localHydro + sloshIncrement",
+            "const drumColorsAtPhaseZero = analyticalColorSnapshot(\"drum\");",
+            "const drumColorsAtPhase123 = analyticalColorSnapshot(\"drum\");",
+            '"drum pressure vertex colors did not change by phase"',
+        )
+
+        for statement in expected_pressure_contract:
+            self.assertIn(statement, self.html)
+        self.assertNotIn(
+            "(selected.hydrostatic_pressure_pa * normalizedDepth + selected.centrifugal_pressure_pa) * selected.slosh_amplification",
+            self.html,
+        )
+
     def test_embedded_viewer_only_exposes_animation_controls(self) -> None:
         from cyclewash_technical_report_html import build_scenario_viewer_html
 
