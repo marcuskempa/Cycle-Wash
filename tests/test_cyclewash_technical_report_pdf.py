@@ -155,11 +155,11 @@ class CycleWashTechnicalReportPdfTests(unittest.TestCase):
 
         self.assertEqual(64, len(fingerprint))
         self.assertRegex(fingerprint, r"^[0-9a-f]{64}$")
-        self.assertTrue(PDF_REPORT_SCHEMA_VERSION)
+        self.assertEqual("cyclewash-pdf-v2", PDF_REPORT_SCHEMA_VERSION)
         self.assertEqual(expected, fingerprint)
         with patch(
             "cyclewash_technical_report_pdf.PDF_REPORT_SCHEMA_VERSION",
-            "cyclewash-pdf-v2",
+            "cyclewash-pdf-v3",
         ):
             self.assertNotEqual(fingerprint, pdf_report_fingerprint())
 
@@ -188,7 +188,10 @@ class CycleWashTechnicalReportPdfTests(unittest.TestCase):
             (non_background & (red >= 135) & (green >= 150) & (blue >= 155)).sum(),
             500,
         )
-        self.assertGreater(((green >= 85) & (green > red * 1.2) & (green > blue * 1.1)).sum(), 250)
+        self.assertGreater(
+            ((green >= 85) & (green > red * 1.2) & (green > blue * 1.1)).sum(),
+            10_000,
+        )
         self.assertGreater(((red >= 130) & (red > green * 1.3) & (red > blue * 1.3)).sum(), 100)
         self.assertGreater(((red >= 170) & (green >= 100) & (blue <= 90)).sum(), 100)
         self.assertLess(white.sum(), schematic.shape[0] * schematic.shape[1] * 0.01)

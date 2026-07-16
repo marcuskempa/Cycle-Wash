@@ -47,7 +47,7 @@ CONTENT_WIDTH = PAGE_WIDTH - 2 * MARGIN
 DARK_BLUE = colors.HexColor("#123047")
 GREEN = colors.HexColor("#1A6B57")
 PALE_BLUE = colors.HexColor("#EAF1F5")
-PDF_REPORT_SCHEMA_VERSION = "cyclewash-pdf-v1"
+PDF_REPORT_SCHEMA_VERSION = "cyclewash-pdf-v2"
 
 _ASSEMBLY_FILES = (
     ("Enclosure", "enclosure.stl", "#6F8795", "casing"),
