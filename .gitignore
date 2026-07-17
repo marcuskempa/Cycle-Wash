@@ -1,6 +1,7 @@
 # Local Python and solver environments
 work/
 .venv/
+/.superpowers/
 
 # Python-generated files
 __pycache__/
