@@ -2,6 +2,8 @@
 work/
 .venv/
 /.superpowers/
+/.devcontainer/
+/docs/
 
 # Python-generated files
 __pycache__/
