@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 from hashlib import sha256
+from html import escape
 from io import BytesIO
 from pathlib import Path
 from typing import Iterable
 
+import matplotlib
+from matplotlib.font_manager import FontProperties
+from matplotlib.mathtext import math_to_image
 import numpy as np
 from PIL import Image as PillowImage
 from PIL import ImageDraw, ImageFont
@@ -16,8 +20,6 @@ from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import inch, mm
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import (
     Flowable,
     Image,
@@ -47,7 +49,8 @@ CONTENT_WIDTH = PAGE_WIDTH - 2 * MARGIN
 DARK_BLUE = colors.HexColor("#123047")
 GREEN = colors.HexColor("#1A6B57")
 PALE_BLUE = colors.HexColor("#EAF1F5")
-PDF_REPORT_SCHEMA_VERSION = "cyclewash-pdf-v2"
+PDF_REPORT_SCHEMA_VERSION = "cyclewash-pdf-v3"
+MATH_DPI = 180.0
 
 _ASSEMBLY_FILES = (
     ("Enclosure", "enclosure.stl", "#6F8795", "casing"),
@@ -108,7 +111,6 @@ def build_report_pdf(document: ReportDocument, stl_root: str | Path) -> bytes:
 
 def _report_styles() -> dict[str, ParagraphStyle]:
     styles = getSampleStyleSheet()
-    _register_equation_font()
     return {
         "title": ParagraphStyle(
             "CycleWashTitle",
@@ -167,33 +169,16 @@ def _report_styles() -> dict[str, ParagraphStyle]:
             leading=8.8,
             textColor=colors.white,
         ),
-        "equation": ParagraphStyle(
-            "CycleWashEquation",
+        "calculator": ParagraphStyle(
+            "CycleWashCalculator",
             parent=styles["BodyText"],
-            fontName="CycleWashEquation",
-            fontSize=10.5,
-            leading=17,
-            textColor=DARK_BLUE,
+            fontName="Courier",
+            fontSize=6.5,
+            leading=8.0,
+            textColor=colors.HexColor("#66737D"),
             alignment=TA_CENTER,
-            borderColor=colors.HexColor("#B9CBD7"),
-            borderWidth=0.5,
-            borderPadding=8,
-            backColor=PALE_BLUE,
-            spaceBefore=2,
-            spaceAfter=5,
         ),
     }
-
-
-def _register_equation_font() -> None:
-    if "CycleWashEquation" in pdfmetrics.getRegisteredFontNames():
-        return
-    import reportlab
-
-    unicode_font = Path(r"C:\Windows\Fonts\segoeui.ttf")
-    if not unicode_font.is_file():
-        unicode_font = Path(reportlab.__file__).resolve().parent / "fonts" / "Vera.ttf"
-    pdfmetrics.registerFont(TTFont("CycleWashEquation", str(unicode_font)))
 
 
 def _report_story(document: ReportDocument, stl_root: Path, styles: dict[str, ParagraphStyle]) -> list[Flowable]:
@@ -295,12 +280,58 @@ def _scenario_table(
     )
 
 
-def _compact_formula_block(formula: FormulaDefinition, styles: dict[str, ParagraphStyle]) -> Flowable:
+def _compact_formula_block(
+    formula: FormulaDefinition,
+    styles: dict[str, ParagraphStyle],
+) -> Flowable:
+    if not formula.latex.strip() or not formula.evaluated_latex.strip():
+        raise ValueError(f"core PDF formula is missing LaTeX: {formula.identifier}")
+    if not formula.calculator_expression.strip():
+        raise ValueError(
+            f"core PDF formula is missing calculator expression: {formula.identifier}"
+        )
+    panel = Table(
+        [
+            [
+                _latex_image_flowable(
+                    formula.latex,
+                    CONTENT_WIDTH - 18,
+                    24,
+                    10.5,
+                )
+            ],
+            [
+                _latex_image_flowable(
+                    formula.evaluated_latex,
+                    CONTENT_WIDTH - 18,
+                    30,
+                    10.0,
+                )
+            ],
+            [Paragraph(escape(formula.calculator_expression), styles["calculator"])],
+        ],
+        colWidths=[CONTENT_WIDTH],
+        hAlign="LEFT",
+    )
+    panel.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, -1), PALE_BLUE),
+                ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#B9CBD7")),
+                ("LINEABOVE", (0, 1), (-1, 1), 0.35, colors.HexColor("#C4D2DA")),
+                ("LINEABOVE", (0, 2), (-1, 2), 0.35, colors.HexColor("#C4D2DA")),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+                ("TOPPADDING", (0, 0), (-1, -1), 4),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+            ]
+        )
+    )
     return KeepTogether(
         [
             Paragraph(formula.title, styles["subsection"]),
-            Paragraph(_equation_markup(formula.html), styles["equation"]),
-            Paragraph(_equation_markup(formula.evaluated_html), styles["equation"]),
+            panel,
         ]
     )
 
@@ -354,25 +385,60 @@ def _styled_table(rows: list[list[object]], widths: list[float], styles: dict[st
     return table
 
 
-def _equation_markup(html: str) -> str:
-    replacements = {
-        "<div>": "",
-        "</div>": "",
-        "&omega;": "ω",
-        "&pi;": "π",
-        "&rho;": "ρ",
-        "&theta;": "θ",
-        "&sigma;": "σ",
-        "&tau;": "τ",
-        "&radic;": "√",
-    }
-    for source, target in replacements.items():
-        html = html.replace(source, target)
-    return html
-
-
 def _image_flowable(png: bytes, width: float, height: float) -> Image:
     return Image(BytesIO(png), width=width, height=height, hAlign="CENTER")
+
+
+def _latex_formula_png(latex: str, font_size: float = 10.5) -> bytes:
+    """Render one MathText expression as a transparent deterministic PNG."""
+
+    expression = latex.strip()
+    if not expression:
+        raise ValueError("PDF equation LaTeX must not be empty")
+    output = BytesIO()
+    try:
+        with matplotlib.rc_context(
+            {
+                "mathtext.fontset": "dejavuserif",
+                "savefig.transparent": True,
+            }
+        ):
+            math_to_image(
+                f"${expression}$",
+                output,
+                prop=FontProperties(family="DejaVu Serif", size=font_size),
+                dpi=MATH_DPI,
+                format="png",
+                color="#123047",
+            )
+    except (RuntimeError, ValueError) as error:
+        raise ValueError("unable to render PDF equation with MathText") from error
+    png = output.getvalue()
+    with PillowImage.open(BytesIO(png)) as rendered:
+        if rendered.width <= 1 or rendered.height <= 1:
+            raise ValueError("unable to render PDF equation with MathText")
+    return png
+
+
+def _latex_image_flowable(
+    latex: str,
+    max_width: float,
+    max_height: float,
+    font_size: float,
+) -> Image:
+    """Create a proportionally scaled ReportLab image for one equation."""
+
+    png = _latex_formula_png(latex, font_size)
+    with PillowImage.open(BytesIO(png)) as rendered:
+        natural_width = rendered.width * 72.0 / MATH_DPI
+        natural_height = rendered.height * 72.0 / MATH_DPI
+    scale = min(1.0, max_width / natural_width, max_height / natural_height)
+    return Image(
+        BytesIO(png),
+        width=natural_width * scale,
+        height=natural_height * scale,
+        hAlign="CENTER",
+    )
 
 
 def _assembly_figure(stl_root: Path) -> bytes:

@@ -61,6 +61,7 @@ class FormulaDefinition:
     explanation: str
     evaluated_latex: str = ""
     evaluated_html: str = ""
+    calculator_expression: str = ""
 
 
 @dataclass(frozen=True)
@@ -317,6 +318,12 @@ def _formula_catalogue(
                 f"({drivetrain.front_teeth:d})({drivetrain.pedal_rpm:.1f} RPM/{scenario.speed_rpm:.3f} RPM) = "
                 f"{drivetrain.exact_rear_teeth:.3f}</div>"
             ),
+            calculator_expression=(
+                f"{drivetrain.pedal_rpm:.1f}*{drivetrain.front_teeth:d}/"
+                f"{drivetrain.practical_rear_teeth:d} = {drivetrain.actual_drum_rpm:.3f} RPM; "
+                f"{drivetrain.front_teeth:d}*{drivetrain.pedal_rpm:.1f}/"
+                f"{scenario.speed_rpm:.3f} = {drivetrain.exact_rear_teeth:.3f} teeth"
+            ),
         ),
         FormulaDefinition(
             "angular_speed_and_edge_velocity",
@@ -346,6 +353,12 @@ def _formula_catalogue(
                 f"({scenario.speed_rpm:.3f} rev/min)(1 min/60 s) = {analytical.angular_speed_rad_s:.4f} rad/s; "
                 f"v<sub>edge</sub> = ({analytical.angular_speed_rad_s:.4f} rad/s)"
                 f"({inputs.drum_radius_m:.3f} m) = {analytical.angular_speed_rad_s * inputs.drum_radius_m:.4f} m/s</div>"
+            ),
+            calculator_expression=(
+                f"2*pi*{scenario.speed_rpm:.3f}/60 = "
+                f"{analytical.angular_speed_rad_s:.4f} rad/s; "
+                f"{analytical.angular_speed_rad_s:.4f}*{inputs.drum_radius_m:.3f} = "
+                f"{analytical.angular_speed_rad_s * inputs.drum_radius_m:.4f} m/s"
             ),
         ),
         FormulaDefinition(
@@ -462,6 +475,11 @@ def _formula_catalogue(
                 f"({scenario.laundry_mass_kg:.3f} kg)({scenario.eccentricity_m:.3f} m)"
                 f"({analytical.angular_speed_rad_s:.4f} rad/s)<sup>2</sup> = {results.imbalance_force_n:.3f} N</div>"
             ),
+            calculator_expression=(
+                f"{scenario.laundry_mass_kg:.3f}*{scenario.eccentricity_m:.3f}*"
+                f"{analytical.angular_speed_rad_s:.4f}^2 = "
+                f"{results.imbalance_force_n:.3f} N"
+            ),
         ),
         FormulaDefinition(
             "shaft_bending_and_torsion",
@@ -531,6 +549,14 @@ def _formula_catalogue(
                 f"{results.von_mises_pa / 1.0e6:.3f} MPa; FoS<sub>y</sub> = "
                 f"({inputs.shaft_material.yield_strength_pa / 1.0e6:.3f} MPa)"
                 f"/({results.von_mises_pa / 1.0e6:.3f} MPa) = {results.factor_of_safety:.3f}</div>"
+            ),
+            calculator_expression=(
+                f"sqrt({results.bending_stress_pa / 1.0e6:.3f}^2 + "
+                f"3*{analytical.shaft_torsional_shear_pa / 1.0e6:.3f}^2) = "
+                f"{results.von_mises_pa / 1.0e6:.3f} MPa; "
+                f"{inputs.shaft_material.yield_strength_pa / 1.0e6:.3f}/"
+                f"{results.von_mises_pa / 1.0e6:.3f} = "
+                f"{results.factor_of_safety:.3f}"
             ),
         ),
     )

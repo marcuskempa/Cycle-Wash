@@ -3,6 +3,7 @@ plotly>=5.22
 numpy>=1.23
 reportlab>=4.2
 Pillow>=10
+matplotlib>=3.8
 
 # Optional, only needed for the in-app STL export button:
 # cadquery>=2.4
