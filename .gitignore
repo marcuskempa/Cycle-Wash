@@ -4,6 +4,7 @@ work/
 /.superpowers/
 /.devcontainer/
 /docs/
+/tests/
 
 # Python-generated files
 __pycache__/

@@ -1,1 +1,0 @@
-"""CycleWash technical-evaluation tests."""
